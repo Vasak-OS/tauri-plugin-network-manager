@@ -171,16 +171,17 @@ impl ConnectionProxy for zbus::blocking::Proxy<'_> {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NetworkInfo {
     pub name: String,
     pub ssid: String,
+    pub connection_type: String,
+    pub icon: String,
+    pub ip_address: String,
+    pub mac_address: String,
     pub signal_strength: u8,
     pub security_type: WiFiSecurityType,
-    pub icon: String,
     pub is_connected: bool,
-    pub ip_address: Option<String>,
-    pub mac_address: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -254,8 +255,76 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             "ActiveConnections"
         ).map_err(|e| NetworkError::from(e))?;
 
-        // TODO: Parse active connections and return NetworkInfo
-        Ok(NetworkInfo::default())
+        // Parse active connections
+        let _active_connections_proxy = zbus::blocking::Proxy::new(
+            &self.connection,
+            "org.freedesktop.NetworkManager",
+            "/org/freedesktop/NetworkManager",
+            "org.freedesktop.NetworkManager"
+        )?;
+
+        // Get active connections
+        let active_connections_variant = self.proxy.get(
+            InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager"), 
+            "ActiveConnections"
+        )?;
+
+        // If no active connections, return default
+        let active_connections = match active_connections_variant.downcast_ref() {
+            Some(Value::Array(arr)) if !arr.is_empty() => {
+                // Get the first active connection path
+                match arr[0] {
+                    zbus::zvariant::Value::ObjectPath(ref path) => {
+                        // Create a proxy for the active connection
+                        let _connection_proxy = zbus::blocking::Proxy::new(
+                            &self.connection,
+                            "org.freedesktop.NetworkManager",
+                            path,
+                            "org.freedesktop.NetworkManager.Connection.Active"
+                        )?;
+
+                        // Get connection details
+                        // Retrieve connection type and SSID directly from the connection proxy
+                        let connection_type_variant = self.proxy.get(
+                            InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager.Connection.Active"), 
+                            "Type"
+                        )?;
+
+                        let ssid_variant = self.proxy.get(
+                            InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager.Connection.Active"), 
+                            "Id"
+                        )?;
+
+                        // Extract connection type and SSID
+                        let connection_type = match connection_type_variant.downcast_ref() {
+                            Some(Value::Str(s)) => s.to_string(),
+                            _ => "Unknown".to_string(),
+                        };
+
+                        let ssid = match ssid_variant.downcast_ref() {
+                            Some(Value::Str(s)) => s.to_string(),
+                            _ => "Unknown".to_string(),
+                        };
+
+                        NetworkInfo {
+                            name: ssid.clone(),
+                            ssid,
+                            connection_type,
+                            icon: Self::get_wifi_icon(0), // Placeholder icon
+                            ip_address: "0.0.0.0".to_string(), // TODO: Retrieve actual IP
+                            mac_address: "00:00:00:00:00:00".to_string(), // TODO: Retrieve actual MAC
+                            signal_strength: 0, // TODO: Implement signal strength retrieval
+                            security_type: WiFiSecurityType::None, // TODO: Implement security type retrieval
+                            is_connected: true,
+                        }
+                    },
+                    _ => NetworkInfo::default(),
+                }
+            },
+            _ => NetworkInfo::default(),
+        };
+
+        Ok(active_connections)
     }
 
     pub fn list_wifi_networks(&self) -> Result<Vec<NetworkInfo>> {
