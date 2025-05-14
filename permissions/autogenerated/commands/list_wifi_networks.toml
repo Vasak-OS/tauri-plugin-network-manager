@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-list-wifi-networks"
+description = "Enables the list_wifi_networks command without any pre-configured scope."
+commands.allow = ["list_wifi_networks"]
+
+[[permission]]
+identifier = "deny-list-wifi-networks"
+description = "Denies the list_wifi_networks command without any pre-configured scope."
+commands.deny = ["list_wifi_networks"]
