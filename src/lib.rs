@@ -1,7 +1,9 @@
-use commands::{connect_to_wifi, get_network_state, list_wifi_networks, toggle_network};
-use tauri::{plugin::TauriPlugin, Runtime, Manager};
+use commands::{connect_to_wifi, get_network_state, list_wifi_networks};
+use tauri::{plugin::TauriPlugin, Manager, Runtime};
 use serde::{Deserialize, Serialize};
+use std::result::Result;
 use std::sync::{Arc, RwLock};
+// Removed unused import
 pub use desktop::{NetworkInfo, WiFiSecurityType, WiFiConnectionConfig};
 
 #[cfg(desktop)]
@@ -15,7 +17,39 @@ pub use crate::error::{NetworkError, Result as NetworkResult};
 
 #[derive(Default)]
 pub struct NetworkManagerState {
-    manager: Arc<RwLock<Option<desktop::VSKNetworkManager<'static, tauri::Wry>>>>,
+    pub manager: Arc<RwLock<Option<desktop::VSKNetworkManager<'static, tauri::Wry>>>>,
+}
+
+impl NetworkManagerState {
+    pub fn new(manager: Option<desktop::VSKNetworkManager<'static, tauri::Wry>>) -> Self {
+        Self {
+            manager: Arc::new(RwLock::new(manager)),
+        }
+    }
+
+    pub fn list_wifi_networks(&self) -> Result<Vec<NetworkInfo>, NetworkError> {
+        let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
+        match manager.as_ref() {
+            Some(manager) => manager.list_wifi_networks(),
+            _ => Err(NetworkError::NotInitialized),
+        }
+    }
+
+    pub fn connect_to_wifi(&self, config: WiFiConnectionConfig) -> Result<(), NetworkError> {
+        let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
+        match manager.as_ref() {
+            Some(manager) => manager.connect_to_wifi(config),
+            _ => Err(NetworkError::NotInitialized),
+        }
+    }
+
+    pub fn toggle_network_state(&self, enabled: bool) -> Result<bool, NetworkError> {
+        let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
+        match manager.as_ref() {
+            Some(manager) => manager.toggle_network_state(enabled),
+            _ => Err(NetworkError::NotInitialized),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -32,12 +66,15 @@ pub fn init() -> TauriPlugin<tauri::Wry> {
         .setup(|app, _api| -> Result<(), Box<dyn std::error::Error>> {
             #[cfg(desktop)]
             {
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                let network_manager: desktop::VSKNetworkManager<'static, tauri::Wry> = rt.block_on(desktop::init(app, _api))?;
+                // Removed tokio runtime initialization
+                let rt = tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()?;
+let network_manager = rt.block_on(async {
+                    desktop::init(&app, _api).await
+                })?;
                 
-                app.manage(NetworkManagerState { 
-                    manager: Arc::new(RwLock::new(Some(network_manager))) 
-                });
+                app.manage(NetworkManagerState::new(Some(network_manager)));
             }
             Ok(())
         })
@@ -45,7 +82,7 @@ pub fn init() -> TauriPlugin<tauri::Wry> {
             get_network_state,
             list_wifi_networks,
             connect_to_wifi,
-            toggle_network,
+
         ])
         .build()
 }

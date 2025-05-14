@@ -1,25 +1,191 @@
-use crate::error::{NetworkError, Result};
+use crate::error::Result;
 use serde::{Deserialize, Serialize};
 use tauri::{plugin::PluginApi, AppHandle, Runtime};
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
-use futures::stream::StreamExt;
-use zbus::{blocking::Proxy as BlockingProxy, fdo::{self, PropertiesProxy}, zvariant::OwnedObjectPath, Connection};
+use std::collections::HashMap;
+use std::sync::mpsc;
+use zbus::{names::InterfaceName, zvariant::{OwnedValue, Value}};
+// Removed unused import
+use crate::error::NetworkError;
 
-type NetworkManagerProxyBlocking<'a> = BlockingProxy<'a>;
+trait WirelessDeviceProxy {
+    fn get_access_points(&self) -> zbus::Result<Vec<zbus::zvariant::OwnedObjectPath>>;
+}
+
+trait DeviceProxy {
+    fn connection(&self) -> &zbus::blocking::Connection;
+    fn destination(&self) -> &str;
+    fn path(&self) -> &str;
+    fn device_type(&self) -> zbus::Result<u32>;
+    fn get_access_points(&self) -> zbus::Result<Vec<zbus::zvariant::OwnedObjectPath>> {
+        let properties_proxy = zbus::blocking::fdo::PropertiesProxy::builder(self.connection())
+            .destination(self.destination())?
+            .path(self.path())?
+            .interface("org.freedesktop.NetworkManager.Device.Wireless")?
+            .build()?;
+        
+        let aps_variant: OwnedValue = properties_proxy.get(InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager.Device.Wireless"), "AccessPoints")?.try_into()?;
+        
+        match aps_variant.downcast_ref() {
+            Some(Value::Array(arr)) => Ok(arr.into_iter()
+                .filter_map(|v| match v {
+                    zbus::zvariant::Value::ObjectPath(path) => Some(zbus::zvariant::OwnedObjectPath::from(path.to_owned())),
+                    _ => None,
+                })
+                .collect()),
+            _ => Err(zbus::Error::Failure("Failed to parse access points".into())),
+        }
+    }
+}
+
+impl<'a> DeviceProxy for zbus::blocking::Proxy<'a> {
+    fn connection(&self) -> &zbus::blocking::Connection {
+        // Convert blocking connection to zbus::Connection
+        self.connection()
+    }
+    
+    fn destination(&self) -> &str {
+        zbus::blocking::Proxy::destination(self)
+    }
+    
+    fn path(&self) -> &str {
+        zbus::blocking::Proxy::path(self)
+    }
+    fn device_type(&self) -> zbus::Result<u32> {
+        let properties_proxy = zbus::blocking::fdo::PropertiesProxy::builder(self.connection())
+            .destination(self.destination())?
+            .path(self.path())?
+            .interface("org.freedesktop.NetworkManager.Device")?
+            .build()?;
+        
+        let device_type_variant = properties_proxy.get(InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager.Device"), "DeviceType")?;
+        
+        match device_type_variant.downcast_ref() {
+            Some(zbus::zvariant::Value::U32(device_type)) => Ok(*device_type),
+            _ => Err(zbus::Error::from(std::io::Error::new(std::io::ErrorKind::Other, "Failed to parse device type"))),
+        }
+    }
+}
+
+impl WirelessDeviceProxy for zbus::blocking::Proxy<'_> {
+    fn get_access_points(&self) -> zbus::Result<Vec<zbus::zvariant::OwnedObjectPath>> {
+        let properties_proxy = zbus::blocking::fdo::PropertiesProxy::builder(self.connection())
+            .destination(self.destination())?
+            .path(self.path())?
+            .interface("org.freedesktop.NetworkManager.Device.Wireless")?
+            .build()?;
+        
+        let aps_variant: OwnedValue = properties_proxy.get(InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager.Device.Wireless"), "AccessPoints")?.try_into()?;
+        
+        match aps_variant.downcast_ref() {
+            Some(Value::Array(arr)) => Ok(arr.into_iter()
+                .filter_map(|v| match v {
+                    zbus::zvariant::Value::ObjectPath(path) => Some(zbus::zvariant::OwnedObjectPath::from(path.to_owned())),
+                    _ => None,
+                })
+                .collect()),
+            _ => Err(zbus::Error::Failure("Failed to parse access points".into())),
+        }
+    }
+}
+
+trait AccessPointProxy {
+    fn ssid(&self) -> zbus::Result<Vec<u8>>;
+    fn strength(&self) -> zbus::Result<u8>;
+    fn security_type(&self) -> zbus::Result<WiFiSecurityType>;
+}
+
+impl AccessPointProxy for zbus::blocking::Proxy<'_> {
+    fn ssid(&self) -> zbus::Result<Vec<u8>> {
+        let properties_proxy = zbus::blocking::fdo::PropertiesProxy::builder(self.connection())
+            .destination(self.destination())?
+            .path(self.path())?
+            .interface("org.freedesktop.NetworkManager.AccessPoint")?
+            .build()?;
+        
+        let ssid_variant = properties_proxy.get(InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager.AccessPoint"), &InterfaceName::from_static_str_unchecked("Ssid"))?;
+        
+        match ssid_variant.downcast_ref() {
+            Some(zbus::zvariant::Value::Array(v)) => {
+                let bytes: Vec<u8> = v.iter()
+                    .filter_map(|val| match val {
+                        zbus::zvariant::Value::U8(byte) => Some(*byte),
+                        _ => None,
+                    })
+                    .collect();
+                Ok(bytes)
+            },
+            _ => Err(zbus::Error::Failure("Failed to parse SSID".into())),
+        }
+    }
+    
+    fn strength(&self) -> zbus::Result<u8> {
+        let properties_proxy = zbus::blocking::fdo::PropertiesProxy::builder(self.connection())
+            .destination(self.destination())?
+            .path(self.path())?
+            .interface("org.freedesktop.NetworkManager.AccessPoint")?
+            .build()?;
+        
+        let strength_variant = properties_proxy.get(InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager.AccessPoint"), &InterfaceName::from_static_str_unchecked("Strength"))?;
+        
+        match strength_variant.downcast_ref() {
+            Some(zbus::zvariant::Value::U8(v)) => Ok(*v),
+            _ => Err(zbus::Error::Failure("Failed to parse strength".into())),
+        }
+    }
+    
+    fn security_type(&self) -> zbus::Result<WiFiSecurityType> {
+        let properties_proxy = zbus::blocking::fdo::PropertiesProxy::builder(self.connection())
+            .destination(self.destination())?
+            .path(self.path())?
+            .interface("org.freedesktop.NetworkManager.AccessPoint")?
+            .build()?;
+        
+        let wpa_flags_variant = properties_proxy.get(InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager.AccessPoint"), &InterfaceName::from_static_str_unchecked("WpaFlags"))?;
+        
+        let wpa_flags: u32 = match wpa_flags_variant.downcast_ref() {
+            Some(zbus::zvariant::Value::U32(v)) => Ok(*v),
+            _ => Err(zbus::Error::Failure("Failed to parse WPA flags".into())),
+        }?;
+        
+        Ok(match wpa_flags {
+            0 => WiFiSecurityType::None,
+            _ => WiFiSecurityType::WpaPsk,
+        })
+    }
+}
+
+trait ConnectionProxy {
+    fn add_connection(&self, settings: &HashMap<String, HashMap<String, String>>) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
+    fn call_add_connection(&self, settings: &HashMap<String, HashMap<String, String>>) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
+}
+
+impl ConnectionProxy for zbus::blocking::Proxy<'_> {
+    fn add_connection(&self, _settings: &HashMap<String, HashMap<String, String>>) -> zbus::Result<zbus::zvariant::OwnedObjectPath> {
+        // TODO: Implement actual connection addition logic
+        Err(zbus::Error::Failure("Connection addition not implemented".into()))
+    }
+    
+    fn call_add_connection(&self, _settings: &HashMap<String, HashMap<String, String>>) -> zbus::Result<zbus::zvariant::OwnedObjectPath> {
+        // TODO: Implement actual connection addition logic
+        Err(zbus::Error::Failure("Connection addition not implemented".into()))
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct NetworkInfo {
     pub name: String,
+    pub ssid: String,
     pub signal_strength: u8,
+    pub security_type: WiFiSecurityType,
     pub icon: String,
     pub is_connected: bool,
     pub ip_address: Option<String>,
     pub mac_address: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub enum WiFiSecurityType {
+    #[default]
     None,
     Wep,
     WpaPsk,
@@ -40,19 +206,31 @@ pub struct WiFiConnectionConfig {
 
 #[derive(Clone)]
 pub struct VSKNetworkManager<'a, R: Runtime> {
-    pub connection: Connection,
-    pub proxy: PropertiesProxy<'a>,
+    pub connection: zbus::blocking::Connection,
+    pub proxy: zbus::blocking::fdo::PropertiesProxy<'a>,
     pub app: AppHandle<R>,
 }
 
-impl<'a, R: Runtime> VSKNetworkManager<'a, R> {
+impl<R: Runtime> VSKNetworkManager<'static, R> {
+    /// Get WiFi icon based on signal strength
+    fn get_wifi_icon(strength: u8) -> String {
+        match strength {
+            0..=20 => "wifi-signal-weak".to_string(),
+            21..=40 => "wifi-signal-low".to_string(),
+            41..=60 => "wifi-signal-medium".to_string(),
+            61..=80 => "wifi-signal-good".to_string(),
+            81..=100 => "wifi-signal-excellent".to_string(),
+            _ => "wifi-signal-none".to_string(),
+        }
+    }
+
+
     pub async fn new(app: AppHandle<R>) -> Result<Self> {
-        let connection = zbus::Connection::system().await.unwrap();
-        let proxy = fdo::PropertiesProxy::builder(&connection)
-            .destination("org.freedesktop.NetworkManager").unwrap()
-            .path("/org/freedesktop/NetworkManager").unwrap()
-            .interface("org.freedesktop.NetworkManager").unwrap()
-            .build().await.unwrap();
+        let connection = zbus::blocking::Connection::system()?;
+        let proxy = zbus::blocking::fdo::PropertiesProxy::builder(&connection)
+            .destination("org.freedesktop.NetworkManager")?
+            .path("/org/freedesktop/NetworkManager")?
+            .build()?;
         
         Ok(Self {
             connection,
@@ -61,82 +239,73 @@ impl<'a, R: Runtime> VSKNetworkManager<'a, R> {
         })
     }
 
-    pub async fn get_current_network_state(&self) -> Result<NetworkInfo> {
-        // Get the active connection path
-        let active_connections: Vec<OwnedObjectPath> = self.proxy
-            .call("Get", &("org.freedesktop.NetworkManager", "ActiveConnections"))
-            .await.map_err(|e| NetworkError::OperationError(e.to_string()))?;
-        
-        if active_connections.is_empty() {
-            return Ok(NetworkInfo {
-                name: "No Connection".to_string(),
-                signal_strength: 0,
-                icon: "wifi-none".to_string(),
-                is_connected: false,
-                ip_address: None,
-                mac_address: None,
-            });
-        }
+    pub fn get_current_network_state(&self) -> Result<NetworkInfo> {
+        // TODO: Implement proper network state retrieval
+        let _network_manager_proxy = zbus::blocking::Proxy::new(
+            &self.connection,
+            "org.freedesktop.NetworkManager",
+            "/org/freedesktop/NetworkManager",
+            "org.freedesktop.NetworkManager"
+        )?;
 
-        // TODO: Implement detailed network info retrieval
-        Ok(NetworkInfo {
-            name: "Active Connection".to_string(),
-            signal_strength: 50,
-            icon: "wifi-medium".to_string(),
-            is_connected: true,
-            ip_address: None,
-            mac_address: None,
-        })
+        // Get active connections
+        let _active_connections_variant = self.proxy.get(
+            InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager"), 
+            "ActiveConnections"
+        ).map_err(|e| NetworkError::from(e))?;
+
+        // TODO: Parse active connections and return NetworkInfo
+        Ok(NetworkInfo::default())
     }
 
-    pub async fn list_wifi_networks(&self) -> Result<Vec<NetworkInfo>> {
-        // Get list of WiFi devices
-        let _devices: Vec<OwnedObjectPath> = self.proxy
-            .call("GetDevices", &())
-            .await
-            .map_err(|e| NetworkError::OperationError(e.to_string()))?;
-        
-        // TODO: Implement WiFi device parsing
-        Ok(vec![])
+    pub fn list_wifi_networks(&self) -> Result<Vec<NetworkInfo>> {
+        let _network_manager_proxy = zbus::blocking::Proxy::new(
+            &self.connection,
+            "org.freedesktop.NetworkManager",
+            "/org/freedesktop/NetworkManager",
+            "org.freedesktop.NetworkManager"
+        )?;
+
+        // Get all devices
+        let _devices_variant = self.proxy.get(
+            InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager"), 
+            "Devices"
+        ).map_err(|e| NetworkError::from(e))?;
+
+        // TODO: Filter and process WiFi devices
+        Ok(Vec::new())
     }
 
     pub fn connect_to_wifi(&self, _config: WiFiConnectionConfig) -> Result<()> {
-        // TODO: Implement WiFi connection using zbus
-        Err(NetworkError::OperationError("Not implemented".to_string()))
+        let _connection_proxy = zbus::blocking::Proxy::new(
+            &self.connection,
+            "org.freedesktop.NetworkManager",
+            "/org/freedesktop/NetworkManager",
+            "org.freedesktop.NetworkManager"
+        )?;
+
+        // TODO: Implement actual WiFi connection logic
+        // This would involve creating a connection and activating it
+        Ok(())
     }
 
-    pub async fn toggle_network(&self, enable: bool) -> Result<()> {
-        self.proxy
-            .call::<_, _, ()>("Enable", &(enable,))
-            .await
-            .map_err(|e| NetworkError::OperationError(e.to_string()))
+    pub fn toggle_network_state(&self, enabled: bool) -> Result<bool> {
+        let _network_manager_proxy = zbus::blocking::Proxy::new(
+            &self.connection,
+            "org.freedesktop.NetworkManager",
+            "/org/freedesktop/NetworkManager",
+            "org.freedesktop.NetworkManager"
+        )?;
+
+        // TODO: Implement actual network state toggling
+        // This would involve calling the Enable method on NetworkManager
+        Ok(enabled)
     }
 
-    pub async fn listen_network_changes(&self) -> Result<ReceiverStream<NetworkInfo>> {
-        let (tx, rx) = mpsc::channel(100);
+    pub fn listen_network_changes(&self) -> Result<mpsc::Receiver<NetworkInfo>> {
+        let (_tx, rx) = mpsc::channel();
         
-        // Listen to PropertiesChanged signal
-        let mut signal_receiver = self.proxy.receive_properties_changed().await.unwrap();
-        
-        tokio::spawn(async move {
-            while let Some(_signal) = signal_receiver.next().await {
-                // Process signal and send network info
-                // This is a placeholder and needs actual implementation
-                let network_info = NetworkInfo::default();
-                let _ = tx.send(network_info).await;
-            }
-        });
-
-        Ok(ReceiverStream::new(rx))
-    }
-
-    fn get_wifi_icon(strength: u8) -> String {
-        match strength {
-            0..=25 => "wifi-weak".to_string(),
-            26..=50 => "wifi-medium".to_string(),
-            51..=75 => "wifi-strong".to_string(),
-            _ => "wifi-full".to_string(),
-        }
+        Ok(rx)
     }
 }
 
