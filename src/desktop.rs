@@ -1,41 +1,10 @@
-use crate::error::Result;
-use serde::{Deserialize, Serialize};
-use tauri::{plugin::PluginApi, AppHandle, Runtime};
 use std::collections::HashMap;
 use std::sync::mpsc;
+use tauri::{AppHandle, Runtime, plugin::PluginApi};
+use crate::models::*;
 use zbus::{names::InterfaceName, zvariant::{OwnedValue, Value}};
-// Removed unused import
+use crate::error::Result;
 use crate::error::NetworkError;
-
-trait WirelessDeviceProxy {
-    fn get_access_points(&self) -> zbus::Result<Vec<zbus::zvariant::OwnedObjectPath>>;
-}
-
-trait DeviceProxy {
-    fn connection(&self) -> &zbus::blocking::Connection;
-    fn destination(&self) -> &str;
-    fn path(&self) -> &str;
-    fn device_type(&self) -> zbus::Result<u32>;
-    fn get_access_points(&self) -> zbus::Result<Vec<zbus::zvariant::OwnedObjectPath>> {
-        let properties_proxy = zbus::blocking::fdo::PropertiesProxy::builder(self.connection())
-            .destination(self.destination())?
-            .path(self.path())?
-            .interface("org.freedesktop.NetworkManager.Device.Wireless")?
-            .build()?;
-        
-        let aps_variant: OwnedValue = properties_proxy.get(InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager.Device.Wireless"), "AccessPoints")?.try_into()?;
-        
-        match aps_variant.downcast_ref() {
-            Some(Value::Array(arr)) => Ok(arr.into_iter()
-                .filter_map(|v| match v {
-                    zbus::zvariant::Value::ObjectPath(path) => Some(zbus::zvariant::OwnedObjectPath::from(path.to_owned())),
-                    _ => None,
-                })
-                .collect()),
-            _ => Err(zbus::Error::Failure("Failed to parse access points".into())),
-        }
-    }
-}
 
 impl<'a> DeviceProxy for zbus::blocking::Proxy<'a> {
     fn connection(&self) -> &zbus::blocking::Connection {
@@ -86,12 +55,6 @@ impl WirelessDeviceProxy for zbus::blocking::Proxy<'_> {
             _ => Err(zbus::Error::Failure("Failed to parse access points".into())),
         }
     }
-}
-
-trait AccessPointProxy {
-    fn ssid(&self) -> zbus::Result<Vec<u8>>;
-    fn strength(&self) -> zbus::Result<u8>;
-    fn security_type(&self) -> zbus::Result<WiFiSecurityType>;
 }
 
 impl AccessPointProxy for zbus::blocking::Proxy<'_> {
@@ -154,10 +117,6 @@ impl AccessPointProxy for zbus::blocking::Proxy<'_> {
     }
 }
 
-trait ConnectionProxy {
-    fn add_connection(&self, settings: &HashMap<String, HashMap<String, String>>) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
-    fn call_add_connection(&self, settings: &HashMap<String, HashMap<String, String>>) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
-}
 
 impl ConnectionProxy for zbus::blocking::Proxy<'_> {
     fn add_connection(&self, _settings: &HashMap<String, HashMap<String, String>>) -> zbus::Result<zbus::zvariant::OwnedObjectPath> {
@@ -171,46 +130,6 @@ impl ConnectionProxy for zbus::blocking::Proxy<'_> {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct NetworkInfo {
-    pub name: String,
-    pub ssid: String,
-    pub connection_type: String,
-    pub icon: String,
-    pub ip_address: String,
-    pub mac_address: String,
-    pub signal_strength: u8,
-    pub security_type: WiFiSecurityType,
-    pub is_connected: bool,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
-pub enum WiFiSecurityType {
-    #[default]
-    None,
-    Wep,
-    WpaPsk,
-    WpaEap,
-    Wpa2Psk,
-    Wpa3Psk,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct WiFiConnectionConfig {
-    pub ssid: String,
-    pub password: Option<String>,
-    pub security_type: WiFiSecurityType,
-    pub username: Option<String>,
-}
-
-// Removed duplicate init function
-
-#[derive(Clone)]
-pub struct VSKNetworkManager<'a, R: Runtime> {
-    pub connection: zbus::blocking::Connection,
-    pub proxy: zbus::blocking::fdo::PropertiesProxy<'a>,
-    pub app: AppHandle<R>,
-}
 
 impl<R: Runtime> VSKNetworkManager<'static, R> {
     /// Get WiFi icon based on signal strength
@@ -378,6 +297,6 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
     }
 }
 
-pub async fn init(app: &AppHandle<tauri::Wry>, _api: PluginApi<tauri::Wry, ()>) -> crate::error::Result<VSKNetworkManager<'static, tauri::Wry>> {
+pub async fn init(app: &AppHandle<tauri::Wry>, _api: PluginApi<tauri::Wry, ()>) -> Result<VSKNetworkManager<'static, tauri::Wry>> {
   VSKNetworkManager::new(app.clone()).await
 }

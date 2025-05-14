@@ -3,8 +3,7 @@ use tauri::{plugin::TauriPlugin, Manager, Runtime};
 use serde::{Deserialize, Serialize};
 use std::result::Result;
 use std::sync::{Arc, RwLock};
-// Removed unused import
-pub use desktop::{NetworkInfo, WiFiSecurityType, WiFiConnectionConfig};
+pub use models::{NetworkInfo, WiFiSecurityType, WiFiConnectionConfig};
 
 #[cfg(desktop)]
 mod desktop;
@@ -16,12 +15,12 @@ mod models;
 pub use crate::error::{NetworkError, Result as NetworkResult};
 
 #[derive(Default)]
-pub struct NetworkManagerState {
-    pub manager: Arc<RwLock<Option<desktop::VSKNetworkManager<'static, tauri::Wry>>>>,
+pub struct NetworkManagerState<R: Runtime> {
+    pub manager: Arc<RwLock<Option<crate::models::VSKNetworkManager<'static, R>>>>,
 }
 
-impl NetworkManagerState {
-    pub fn new(manager: Option<desktop::VSKNetworkManager<'static, tauri::Wry>>) -> Self {
+impl<R: Runtime> NetworkManagerState<R> {
+    pub fn new(manager: Option<crate::models::VSKNetworkManager<'static, R>>) -> Self {
         Self {
             manager: Arc::new(RwLock::new(manager)),
         }
@@ -31,7 +30,7 @@ impl NetworkManagerState {
         let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
         match manager.as_ref() {
             Some(manager) => manager.list_wifi_networks(),
-            _ => Err(NetworkError::NotInitialized),
+            _none => Err(NetworkError::NotInitialized),
         }
     }
 
@@ -39,7 +38,7 @@ impl NetworkManagerState {
         let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
         match manager.as_ref() {
             Some(manager) => manager.connect_to_wifi(config),
-            _ => Err(NetworkError::NotInitialized),
+            _none => Err(NetworkError::NotInitialized),
         }
     }
 
@@ -47,7 +46,7 @@ impl NetworkManagerState {
         let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
         match manager.as_ref() {
             Some(manager) => manager.toggle_network_state(enabled),
-            _ => Err(NetworkError::NotInitialized),
+            _none => Err(NetworkError::NotInitialized),
         }
     }
 }
@@ -71,10 +70,10 @@ pub fn init() -> TauriPlugin<tauri::Wry> {
                     .enable_all()
                     .build()?;
 let network_manager = rt.block_on(async {
-                    desktop::init(&app, _api).await
+                    crate::desktop::init(&app, _api).await
                 })?;
                 
-                app.manage(NetworkManagerState::new(Some(network_manager)));
+                app.manage(NetworkManagerState::<tauri::Wry>::new(Some(network_manager)));
             }
             Ok(())
         })
@@ -90,14 +89,14 @@ let network_manager = rt.block_on(async {
 
 /// Extensions to [`tauri::App`], [`tauri::AppHandle`] and [`tauri::Window`] to access the network-manager APIs.
 pub trait NetworkManagerExt<R: Runtime> {
-    fn network_manager(&self) -> Option<desktop::VSKNetworkManager<'static, R>>;
+    fn network_manager(&self) -> Option<crate::models::VSKNetworkManager<'static, R>>;
 }
 
 impl<R: Runtime + Clone, T: Manager<R>> NetworkManagerExt<R> for T {
-    fn network_manager(&self) -> Option<desktop::VSKNetworkManager<'static, R>> {
-        self.try_state::<NetworkManagerState>()
+    fn network_manager(&self) -> Option<crate::models::VSKNetworkManager<'static, R>> {
+        self.try_state::<NetworkManagerState<R>>()
             .and_then(|state| state.manager.read().ok().and_then(|m| {
-                m.as_ref().map(|x| desktop::VSKNetworkManager {
+                m.as_ref().map(|x| crate::models::VSKNetworkManager {
                     connection: x.connection.clone(),
                     proxy: x.proxy.clone(),
                     app: self.app_handle().clone(),
