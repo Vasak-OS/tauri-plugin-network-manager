@@ -1,4 +1,4 @@
-use commands::{connect_to_wifi, get_network_state, list_wifi_networks};
+use commands::{connect_to_wifi, get_network_state, list_wifi_networks, toggle_network_state};
 use tauri::{plugin::TauriPlugin, Manager, Runtime};
 use serde::{Deserialize, Serialize};
 use std::result::Result;
@@ -82,7 +82,7 @@ let network_manager = rt.block_on(async {
             get_network_state,
             list_wifi_networks,
             connect_to_wifi,
-
+            toggle_network_state,
         ])
         .build()
 }
