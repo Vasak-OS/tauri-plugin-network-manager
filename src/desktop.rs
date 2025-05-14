@@ -229,11 +229,11 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                             name: ssid.clone(),
                             ssid,
                             connection_type,
-                            icon: Self::get_wifi_icon(0), // Placeholder icon
+                            icon: Self::get_wifi_icon(0),
                             ip_address: "0.0.0.0".to_string(), // TODO: Retrieve actual IP
-                            mac_address: "00:00:00:00:00:00".to_string(), // TODO: Retrieve actual MAC
-                            signal_strength: 0, // TODO: Implement signal strength retrieval
-                            security_type: WiFiSecurityType::None, // TODO: Implement security type retrieval
+                            mac_address: "00:00:00:00:00:00".to_string(), // TODO: Retrieve actual MAC address
+                            signal_strength: 0, // TODO: Retrieve actual signal strength
+                            security_type: WiFiSecurityType::None, // TODO: Determine actual security type
                             is_connected: true,
                         }
                     },
