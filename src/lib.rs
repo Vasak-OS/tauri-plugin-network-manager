@@ -6,11 +6,11 @@ use std::sync::{Arc, RwLock};
 pub use models::{NetworkInfo, WiFiSecurityType, WiFiConnectionConfig};
 
 #[cfg(desktop)]
-mod desktop;
+pub mod desktop;
 
 mod commands;
-mod error;
-mod models;
+pub mod error;
+pub mod models;
 
 pub use crate::error::{NetworkError, Result as NetworkResult};
 
