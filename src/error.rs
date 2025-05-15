@@ -22,6 +22,8 @@ impl From<zbus::fdo::Error> for NetworkError {
 
 #[derive(Debug, Error, Serialize, Deserialize)]
 pub enum NetworkError {
+    #[error("Unsupported WiFi security type")]
+    UnsupportedSecurityType,
     #[error("ZBus error: {0}")]
     ZBusError(String),
     #[error(transparent)]
@@ -45,6 +47,9 @@ pub enum NetworkError {
     
     #[error("Failed to acquire lock on network manager")]
     LockError,
+    
+    #[error("Feature not implemented")]
+    NotImplemented,
     
     #[error("Task execution failed")]
     TaskError,

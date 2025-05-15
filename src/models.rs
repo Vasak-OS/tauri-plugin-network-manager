@@ -68,6 +68,13 @@ pub enum WiFiSecurityType {
     Wpa3Psk,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct WiFiNetwork {
+    pub ssid: String,
+    pub signal_strength: u8,
+    pub icon: String,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WiFiConnectionConfig {
     pub ssid: String,
