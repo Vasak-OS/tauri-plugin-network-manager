@@ -312,24 +312,158 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
     /// List available WiFi networks
     pub fn list_wifi_networks(&self) -> Result<Vec<NetworkInfo>> {
-        // Get wireless devices
-        let _devices_proxy = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
-            .destination("org.freedesktop.NetworkManager")?
-            .path("/org/freedesktop/NetworkManager")?;
+        // Get all devices
+        let devices_variant = self.proxy.get(
+            InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager"),
+            "Devices",
+        )?;
 
-        // Return a default list for now
-        // TODO: Implement actual WiFi network scanning
-        Ok(vec![NetworkInfo {
-            name: "TestNetwork".to_string(),
-            ssid: "TestNetwork".to_string(),
-            connection_type: "wifi".to_string(),
-            icon: Self::get_wifi_icon(75),
-            ip_address: "192.168.1.100".to_string(),
-            mac_address: "00:11:22:33:44:55".to_string(),
-            signal_strength: 75,
-            security_type: WiFiSecurityType::WpaPsk,
-            is_connected: false,
-        }])
+        let mut networks = Vec::new();
+        let current_network = self.get_current_network_state()?;
+
+        if let Some(zbus::zvariant::Value::Array(devices)) = devices_variant.downcast_ref() {
+            // Iterate over devices in the array
+            let device_values = devices.get();
+            for device in device_values {
+                if let zbus::zvariant::Value::ObjectPath(ref device_path) = device {
+                    // Create a device proxy
+                    let device_props = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
+                        .destination("org.freedesktop.NetworkManager")?
+                        .path(device_path)?
+                        .build()?;
+
+                    // Check if this is a wireless device
+                    let device_type_variant = device_props.get(
+                        InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager.Device"),
+                        "DeviceType",
+                    )?;
+
+                    // DeviceType 2 is WiFi
+                    if let Some(zbus::zvariant::Value::U32(device_type)) = device_type_variant.downcast_ref() {
+                        if device_type == &2u32 {
+                            // This is a WiFi device, get its access points
+                            let wireless_props = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
+                                .destination("org.freedesktop.NetworkManager")?
+                                .path(device_path)?
+                                .build()?;
+
+                            let access_points_variant = wireless_props.get(
+                                InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager.Device.Wireless"),
+                                "AccessPoints",
+                            )?;
+
+                            if let Some(zbus::zvariant::Value::Array(aps)) = access_points_variant.downcast_ref() {
+                                // Iterate over access points
+                                let ap_values = aps.get();
+                                for ap in ap_values {
+                                    if let zbus::zvariant::Value::ObjectPath(ref ap_path) = ap {
+                                        let ap_props = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
+                                            .destination("org.freedesktop.NetworkManager")?
+                                            .path(ap_path)?
+                                            .build()?;
+
+                                        // Get SSID
+                                        let ssid_variant = ap_props.get(
+                                            InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager.AccessPoint"),
+                                            "Ssid",
+                                        )?;
+
+                                        let ssid = match ssid_variant.downcast_ref() {
+                                            Some(zbus::zvariant::Value::Array(ssid_bytes)) => {
+                                                // Convertir el array de bytes a una cadena UTF-8
+                                                let bytes: Vec<u8> = ssid_bytes
+                                                    .iter()
+                                                    .filter_map(|v| {
+                                                        if let zbus::zvariant::Value::U8(b) = v {
+                                                            Some(*b)
+                                                        } else {
+                                                            None
+                                                        }
+                                                    })
+                                                    .collect();
+                                                
+                                                String::from_utf8_lossy(&bytes).to_string()
+                                            }
+                                            _ => "Unknown".to_string(),
+                                        };
+
+                                        // Get signal strength
+                                        let strength_variant = ap_props.get(
+                                            InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager.AccessPoint"),
+                                            "Strength",
+                                        )?;
+
+                                        let strength = match strength_variant.downcast_ref() {
+                                            Some(zbus::zvariant::Value::U8(s)) => *s,
+                                            _ => 0,
+                                        };
+
+                                        // Get security flags
+                                        let _flags_variant = ap_props.get(
+                                            InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager.AccessPoint"),
+                                            "Flags",
+                                        )?;
+
+                                        let wpa_flags_variant = ap_props.get(
+                                            InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager.AccessPoint"),
+                                            "WpaFlags",
+                                        )?;
+
+                                        let security_type = match wpa_flags_variant.downcast_ref() {
+                                            Some(zbus::zvariant::Value::U32(flags)) => {
+                                                if *flags == 0 {
+                                                    WiFiSecurityType::None
+                                                } else {
+                                                    WiFiSecurityType::WpaPsk
+                                                }
+                                            }
+                                            _ => WiFiSecurityType::None,
+                                        };
+
+                                        // Get hardware address (MAC)
+                                        let hw_address_variant = device_props.get(
+                                            InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager.Device"),
+                                            "HwAddress",
+                                        )?;
+
+                                        let mac_address = match hw_address_variant.downcast_ref() {
+                                            Some(zbus::zvariant::Value::Str(s)) => s.to_string(),
+                                            _ => "00:00:00:00:00:00".to_string(),
+                                        };
+
+                                        // Check if this is the currently connected network
+                                        let is_connected = current_network.ssid == ssid;
+
+                                        // Create network info
+                                        let network_info = NetworkInfo {
+                                            name: ssid.clone(),
+                                            ssid,
+                                            connection_type: "wifi".to_string(),
+                                            icon: Self::get_wifi_icon(strength),
+                                            ip_address: if is_connected { current_network.ip_address.clone() } else { "0.0.0.0".to_string() },
+                                            mac_address,
+                                            signal_strength: strength,
+                                            security_type,
+                                            is_connected,
+                                        };
+
+                                        // Add to list if not already present
+                                        if !networks.iter().any(|n: &NetworkInfo| n.ssid == network_info.ssid) {
+                                            networks.push(network_info);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sort networks by signal strength (descending)
+        networks.sort_by(|a, b| b.signal_strength.cmp(&a.signal_strength));
+        
+        Ok(networks)
     }
 
     /// Connect to a WiFi network
