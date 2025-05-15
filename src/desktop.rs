@@ -37,7 +37,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
     pub fn get_current_network_state(&self) -> Result<NetworkInfo> {
         // Create a NetworkManager proxy
-        let network_manager_proxy = zbus::blocking::Proxy::new(
+        let _network_manager_proxy = zbus::blocking::Proxy::new(
             &self.connection,
             "org.freedesktop.NetworkManager",
             "/org/freedesktop/NetworkManager",
@@ -57,7 +57,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                 match arr[0] {
                     zbus::zvariant::Value::ObjectPath(ref path) => {
                         // Create a proxy for the active connection
-                        let connection_proxy = zbus::blocking::Proxy::new(
+                        let _connection_proxy = zbus::blocking::Proxy::new(
                             &self.connection,
                             "org.freedesktop.NetworkManager",
                             path,
@@ -92,7 +92,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                         };
 
                         // Create a device proxy
-                        let device_proxy = zbus::blocking::Proxy::new(
+                        let _device_proxy = zbus::blocking::Proxy::new(
                             &self.connection,
                             "org.freedesktop.NetworkManager",
                             &device_path,
@@ -137,7 +137,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                         };
 
                         // For WiFi networks, get additional details
-                        if let Ok(wireless_proxy) = zbus::blocking::Proxy::new(
+                        if let Ok(_wireless_proxy) = zbus::blocking::Proxy::new(
                             &self.connection,
                             "org.freedesktop.NetworkManager",
                             &device_path,
@@ -160,7 +160,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                             if let Some(zbus::zvariant::Value::ObjectPath(ap_path)) =
                                 active_ap_path.downcast_ref()
                             {
-                                let ap_proxy = zbus::blocking::Proxy::new(
+                                let _ap_proxy = zbus::blocking::Proxy::new(
                                     &self.connection,
                                     "org.freedesktop.NetworkManager",
                                     ap_path,
@@ -253,7 +253,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                         if let Some(zbus::zvariant::Value::ObjectPath(config_path)) =
                             ip4_config_path.downcast_ref()
                         {
-                            let ip_config_proxy = zbus::blocking::Proxy::new(
+                            let _ip_config_proxy = zbus::blocking::Proxy::new(
                                 &self.connection,
                                 "org.freedesktop.NetworkManager",
                                 config_path,
