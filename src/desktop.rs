@@ -4,7 +4,7 @@ use tauri::{plugin::PluginApi, AppHandle, Runtime};
 use zbus::names::InterfaceName;
 use zbus::zvariant::Value;
 
-use crate::error::{NetworkError, Result};
+use crate::error::Result;
 use crate::models::*;
 
 impl<R: Runtime> VSKNetworkManager<'static, R> {
@@ -470,54 +470,156 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
     /// Connect to a WiFi network
     pub fn connect_to_wifi(&self, config: WiFiConnectionConfig) -> Result<()> {
-        let _settings_proxy = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
-            .destination("org.freedesktop.NetworkManager")?
-            .path("/org/freedesktop/NetworkManager/Settings")?;
-
-        // Prepare connection settings
+        // Create connection settings
         let mut connection_settings = HashMap::new();
         let mut wifi_settings = HashMap::new();
         let mut security_settings = HashMap::new();
 
-        // Basic WiFi settings
-        wifi_settings.insert("ssid".to_string(), config.ssid);
-        wifi_settings.insert("mode".to_string(), "infrastructure".to_string());
+        // Set connection name and type
+        let mut connection = HashMap::new();
+        connection.insert("id".to_string(), Value::from(config.ssid.clone()));
+        connection.insert("type".to_string(), Value::from("802-11-wireless"));
+        connection_settings.insert("connection".to_string(), connection);
 
-        // Security settings based on type
+        // Set WiFi settings
+        wifi_settings.insert("ssid".to_string(), Value::from(config.ssid.clone()));
+        wifi_settings.insert("mode".to_string(), Value::from("infrastructure"));
+
+        // Set security settings based on security type
         match config.security_type {
-            WiFiSecurityType::WpaPsk => {
+            WiFiSecurityType::None => {
+                // No security settings needed
+            }
+            WiFiSecurityType::Wep => {
+                security_settings.insert("key-mgmt".to_string(), Value::from("none"));
                 if let Some(password) = config.password {
-                    security_settings.insert("key-mgmt".to_string(), "wpa-psk".to_string());
-                    security_settings.insert("psk".to_string(), password);
+                    security_settings.insert("wep-key0".to_string(), Value::from(password));
                 }
             }
-            WiFiSecurityType::None => {
-                security_settings.insert("key-mgmt".to_string(), "none".to_string());
+            WiFiSecurityType::WpaPsk => {
+                security_settings.insert("key-mgmt".to_string(), Value::from("wpa-psk"));
+                if let Some(password) = config.password {
+                    security_settings.insert("psk".to_string(), Value::from(password));
+                }
             }
-            _ => return Err(NetworkError::UnsupportedSecurityType),
+            WiFiSecurityType::WpaEap => {
+                security_settings.insert("key-mgmt".to_string(), Value::from("wpa-eap"));
+                if let Some(password) = config.password {
+                    security_settings.insert("password".to_string(), Value::from(password));
+                }
+                if let Some(username) = config.username {
+                    security_settings.insert("identity".to_string(), Value::from(username));
+                }
+            }
+            WiFiSecurityType::Wpa2Psk => {
+                security_settings.insert("key-mgmt".to_string(), Value::from("wpa-psk"));
+                security_settings.insert("proto".to_string(), Value::from("rsn"));
+                if let Some(password) = config.password {
+                    security_settings.insert("psk".to_string(), Value::from(password));
+                }
+            }
+            WiFiSecurityType::Wpa3Psk => {
+                security_settings.insert("key-mgmt".to_string(), Value::from("sae"));
+                if let Some(password) = config.password {
+                    security_settings.insert("psk".to_string(), Value::from(password));
+                }
+            }
         }
 
-        // Add settings to main connection settings
         connection_settings.insert("802-11-wireless".to_string(), wifi_settings);
         connection_settings.insert("802-11-wireless-security".to_string(), security_settings);
 
-        // TODO: Implement actual connection
-        // For now, return NotImplemented
-        Err(NetworkError::NotImplemented)
+        // Crear un proxy para NetworkManager
+        let nm_proxy = zbus::blocking::Proxy::new(
+            &self.connection,
+            "org.freedesktop.NetworkManager",
+            "/org/freedesktop/NetworkManager",
+            "org.freedesktop.NetworkManager"
+        )?;
+        
+        // Llamar al método AddAndActivateConnection
+        let result: (zbus::zvariant::OwnedObjectPath, zbus::zvariant::OwnedObjectPath) = nm_proxy.call(
+            "AddAndActivateConnection",
+            &(connection_settings, "/", "/")
+        )?;
+        
+        // Si llegamos aquí, la conexión fue exitosa
+        println!("Conexión creada: {:?}, activada: {:?}", result.0, result.1);
+        Ok(())
     }
 
     /// Toggle network state
     pub fn toggle_network_state(&self, enabled: bool) -> Result<bool> {
-        // Implementar
-        Ok(enabled)
+        // Crear un proxy para NetworkManager
+        let nm_proxy = zbus::blocking::Proxy::new(
+            &self.connection,
+            "org.freedesktop.NetworkManager",
+            "/org/freedesktop/NetworkManager",
+            "org.freedesktop.NetworkManager"
+        )?;
+        
+        // Establecer el estado de la red (habilitado/deshabilitado)
+        nm_proxy.set_property("WirelessEnabled", enabled)?;
+        
+        // Verificar que el estado se haya actualizado correctamente
+        let current_state: bool = nm_proxy.get_property("WirelessEnabled")?;
+        
+        // Devolver el estado actual
+        Ok(current_state)
     }
 
     /// Listen for network changes
     pub fn listen_network_changes(&self) -> Result<mpsc::Receiver<NetworkInfo>> {
-        let (_tx, rx) = mpsc::channel();
-
-        // TODO: Implement network change monitoring
-        // For now, just return the receiver
+        let (tx, rx) = mpsc::channel();
+        let connection_clone = self.connection.clone();
+        let app_handle = self.app.clone();
+        
+        // Crear un hilo para escuchar los cambios de red
+        std::thread::spawn(move || {
+            // Intentar crear una conexión para escuchar eventos
+            match zbus::blocking::Connection::system() {
+                Ok(conn) => {
+                    // Crear un proxy para las señales de NetworkManager
+                    if let Ok(proxy) = zbus::blocking::Proxy::new(
+                        &conn,
+                        "org.freedesktop.NetworkManager",
+                        "/org/freedesktop/NetworkManager",
+                        "org.freedesktop.NetworkManager"
+                    ) {
+                        // Configurar un manejador para la señal PropertiesChanged
+                        if let Ok(mut signal) = proxy.receive_signal("PropertiesChanged") {
+                            // Bucle para procesar señales
+                            while let Some(_msg) = signal.next() {
+                                // Intentar obtener el estado actual de la red
+                                let network_manager = VSKNetworkManager {
+                                    connection: connection_clone.clone(),
+                                    proxy: zbus::blocking::fdo::PropertiesProxy::builder(&connection_clone)
+                                        .destination("org.freedesktop.NetworkManager")
+                                        .unwrap()
+                                        .path("/org/freedesktop/NetworkManager")
+                                        .unwrap()
+                                        .build()
+                                        .unwrap(),
+                                    app: app_handle.clone(),
+                                };
+                                
+                                if let Ok(network_info) = network_manager.get_current_network_state() {
+                                    // Enviar la información de la red actualizada
+                                    if tx.send(network_info).is_err() {
+                                        // El receptor fue cerrado, salir del bucle
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error al conectar con D-Bus para escuchar cambios de red: {:?}", e);
+                }
+            }
+        });
+        
         Ok(rx)
     }
 }
