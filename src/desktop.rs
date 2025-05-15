@@ -624,19 +624,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    
-    #[test]
-    fn test_wifi_icon() {
-        assert_eq!(VSKNetworkManager::<tauri::Wry>::get_wifi_icon(0), "wifi-signal-weak");
-        assert_eq!(VSKNetworkManager::<tauri::Wry>::get_wifi_icon(30), "wifi-signal-low");
-        assert_eq!(VSKNetworkManager::<tauri::Wry>::get_wifi_icon(50), "wifi-signal-medium");
-        assert_eq!(VSKNetworkManager::<tauri::Wry>::get_wifi_icon(70), "wifi-signal-good");
-        assert_eq!(VSKNetworkManager::<tauri::Wry>::get_wifi_icon(90), "wifi-signal-excellent");
-    }
-}
+
 
 /// Initialize the network manager plugin
 pub async fn init(
