@@ -1,4 +1,4 @@
-use commands::{connect_to_wifi, get_network_state, list_wifi_networks, toggle_network_state};
+use commands::{connect_to_wifi, disconnect_from_wifi, get_network_state, get_saved_wifi_networks, delete_wifi_connection, list_wifi_networks, toggle_network_state};
 use tauri::{plugin::TauriPlugin, Manager, Runtime};
 use serde::{Deserialize, Serialize};
 use std::result::Result;
@@ -38,6 +38,30 @@ impl<R: Runtime> NetworkManagerState<R> {
         let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
         match manager.as_ref() {
             Some(manager) => manager.connect_to_wifi(config),
+            _none => Err(NetworkError::NotInitialized),
+        }
+    }
+    
+    pub fn disconnect_from_wifi(&self) -> Result<(), NetworkError> {
+        let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
+        match manager.as_ref() {
+            Some(manager) => manager.disconnect_from_wifi(),
+            _none => Err(NetworkError::NotInitialized),
+        }
+    }
+    
+    pub fn get_saved_wifi_networks(&self) -> Result<Vec<NetworkInfo>, NetworkError> {
+        let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
+        match manager.as_ref() {
+            Some(manager) => manager.get_saved_wifi_networks(),
+            _none => Err(NetworkError::NotInitialized),
+        }
+    }
+    
+    pub fn delete_wifi_connection(&self, ssid: &str) -> Result<bool, NetworkError> {
+        let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
+        match manager.as_ref() {
+            Some(manager) => manager.delete_wifi_connection(ssid),
             _none => Err(NetworkError::NotInitialized),
         }
     }
@@ -81,6 +105,9 @@ let network_manager = rt.block_on(async {
             get_network_state,
             list_wifi_networks,
             connect_to_wifi,
+            disconnect_from_wifi,
+            get_saved_wifi_networks,
+            delete_wifi_connection,
             toggle_network_state,
         ])
         .build()

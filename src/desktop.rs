@@ -622,8 +622,234 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         
         Ok(rx)
     }
+    
+    /// Disconnect from the current WiFi network
+    pub fn disconnect_from_wifi(&self) -> Result<()> {
+        // Obtener el estado actual de la red para identificar la conexión activa
+        let current_state = self.get_current_network_state()?;
+        
+        // Crear un proxy para NetworkManager
+        let nm_proxy = zbus::blocking::Proxy::new(
+            &self.connection,
+            "org.freedesktop.NetworkManager",
+            "/org/freedesktop/NetworkManager",
+            "org.freedesktop.NetworkManager"
+        )?;
+        
+        // Obtener las conexiones activas
+        let active_connections_variant: zbus::zvariant::OwnedValue = self.proxy.get(
+            InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager"),
+            "ActiveConnections"
+        )?;
+        
+        // Convertir el valor a un vector de ObjectPath
+        let active_connections = match active_connections_variant.downcast_ref() {
+            Some(zbus::zvariant::Value::Array(arr)) => arr.iter()
+                .filter_map(|v| match v {
+                    zbus::zvariant::Value::ObjectPath(path) => Some(zbus::zvariant::OwnedObjectPath::from(path.to_owned())),
+                    _ => None,
+                })
+                .collect::<Vec<zbus::zvariant::OwnedObjectPath>>(),
+            _ => Vec::new(),
+        };
+        
+        // Si hay conexiones activas, desconectar la primera (normalmente solo hay una para WiFi)
+        if !active_connections.is_empty() {
+            // Llamar al método DeactivateConnection para desconectar
+            nm_proxy.call::<_, _, ()>("DeactivateConnection", &(active_connections[0].as_str()))?;
+            println!("Desconectado de la red: {}", current_state.ssid);
+            Ok(())
+        } else {
+            // No hay conexiones activas
+            println!("No hay conexiones activas para desconectar");
+            Ok(())
+        }
+    }
+    
+    /// Get the list of saved WiFi networks
+    pub fn get_saved_wifi_networks(&self) -> Result<Vec<NetworkInfo>> {
+        // Crear un proxy para el servicio de configuración de NetworkManager
+        let settings_proxy = zbus::blocking::Proxy::new(
+            &self.connection,
+            "org.freedesktop.NetworkManager",
+            "/org/freedesktop/NetworkManager/Settings",
+            "org.freedesktop.NetworkManager.Settings"
+        )?;
+        
+        // Obtener todas las conexiones guardadas
+        let connections: Vec<zbus::zvariant::OwnedObjectPath> = settings_proxy.call("ListConnections", &())?;
+        let mut saved_networks = Vec::new();
+        
+        // Procesar cada conexión guardada
+        for conn_path in connections {
+            // Crear un proxy para cada conexión
+            let conn_proxy = zbus::blocking::Proxy::new(
+                &self.connection,
+                "org.freedesktop.NetworkManager",
+                conn_path.as_str(),
+                "org.freedesktop.NetworkManager.Settings.Connection"
+            )?;
+            
+            // Obtener la configuración de la conexión como un HashMap
+            let settings: std::collections::HashMap<String, zbus::zvariant::OwnedValue> = conn_proxy.call("GetSettings", &())?;
+            
+            // Verificar si es una conexión WiFi
+            if let Some(connection) = settings.get("connection") {
+                let connection_value = connection.to_owned();
+                let connection_dict = match <zbus::zvariant::Value<'_> as Clone>::clone(&connection_value).downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>() {
+                    Some(dict) => dict,
+                    None => continue,
+                };
+                
+                // Verificar el tipo de conexión
+                if let Some(conn_type) = connection_dict.get("type") {
+                    let conn_type_value = conn_type.to_owned();
+                    let conn_type_str = match <zbus::zvariant::Value<'_> as Clone>::clone(&conn_type_value).downcast::<String>() {
+                        Some(s) => s,
+                        None => continue,
+                    };
+                    
+                    // Si es una conexión WiFi, extraer la información
+                    if conn_type_str == "802-11-wireless" {
+                        let mut network_info = NetworkInfo::default();
+                        network_info.connection_type = "wifi".to_string();
+                        
+                        // Obtener el nombre de la conexión
+                        if let Some(id) = connection_dict.get("id") {
+                            let id_value = id.to_owned();
+                            if let Some(name) = <zbus::zvariant::Value<'_> as Clone>::clone(&id_value).downcast::<String>() {
+                                network_info.name = name;
+                            }
+                        }
+                        
+                        // Obtener el SSID
+                        if let Some(wireless) = settings.get("802-11-wireless") {
+                            let wireless_value = wireless.to_owned();
+                            let wireless_dict = match <zbus::zvariant::Value<'_> as Clone>::clone(&wireless_value).downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>() {
+                                Some(dict) => dict,
+                                None => continue,
+                            };
+                            
+                            if let Some(ssid) = wireless_dict.get("ssid") {
+                                let ssid_value = ssid.to_owned();
+                                if let Some(ssid_bytes) = <zbus::zvariant::Value<'_> as Clone>::clone(&ssid_value).downcast::<Vec<u8>>() {
+                                    if let Ok(ssid_str) = String::from_utf8(ssid_bytes) {
+                                        network_info.ssid = ssid_str;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Determinar el tipo de seguridad
+                        if let Some(security) = settings.get("802-11-wireless-security") {
+                            let security_value = security.to_owned();
+                            let security_dict = match <zbus::zvariant::Value<'_> as Clone>::clone(&security_value).downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>() {
+                                Some(dict) => dict,
+                                None => {
+                                    network_info.security_type = WiFiSecurityType::None;
+                                    saved_networks.push(network_info);
+                                    continue;
+                                },
+                            };
+                            
+                            if let Some(key_mgmt) = security_dict.get("key-mgmt") {
+                                let key_mgmt_value = key_mgmt.to_owned();
+                                if let Some(key_mgmt_str) = <zbus::zvariant::Value<'_> as Clone>::clone(&key_mgmt_value).downcast::<String>() {
+                                    match key_mgmt_str.as_str() {
+                                        "none" => network_info.security_type = WiFiSecurityType::None,
+                                        "wpa-psk" => network_info.security_type = WiFiSecurityType::WpaPsk,
+                                        "wpa-eap" => network_info.security_type = WiFiSecurityType::WpaEap,
+                                        _ => network_info.security_type = WiFiSecurityType::None,
+                                    }
+                                }
+                            }
+                        } else {
+                            network_info.security_type = WiFiSecurityType::None;
+                        }
+                        
+                        // Agregar a la lista de redes guardadas
+                        saved_networks.push(network_info);
+                    }
+                }
+            }
+        }
+        
+        Ok(saved_networks)
+    }
+    
+    /// Delete a saved WiFi connection by SSID
+    pub fn delete_wifi_connection(&self, ssid: &str) -> Result<bool> {
+        // Crear un proxy para el servicio de configuración de NetworkManager
+        let settings_proxy = zbus::blocking::Proxy::new(
+            &self.connection,
+            "org.freedesktop.NetworkManager",
+            "/org/freedesktop/NetworkManager/Settings",
+            "org.freedesktop.NetworkManager.Settings"
+        )?;
+        
+        // Obtener todas las conexiones guardadas
+        let connections: Vec<zbus::zvariant::OwnedObjectPath> = settings_proxy.call("ListConnections", &())?;
+        
+        // Procesar cada conexión guardada
+        for conn_path in connections {
+            // Crear un proxy para cada conexión
+            let conn_proxy = zbus::blocking::Proxy::new(
+                &self.connection,
+                "org.freedesktop.NetworkManager",
+                conn_path.as_str(),
+                "org.freedesktop.NetworkManager.Settings.Connection"
+            )?;
+            
+            // Obtener la configuración de la conexión como un HashMap
+            let settings: std::collections::HashMap<String, zbus::zvariant::OwnedValue> = conn_proxy.call("GetSettings", &())?;
+            
+            // Verificar si es una conexión WiFi
+            if let Some(connection) = settings.get("connection") {
+                let connection_value = connection.to_owned();
+                let connection_dict = match <zbus::zvariant::Value<'_> as Clone>::clone(&connection_value).downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>() {
+                    Some(dict) => dict,
+                    None => continue,
+                };
+                
+                // Verificar el tipo de conexión
+                if let Some(conn_type) = connection_dict.get("type") {
+                    let conn_type_value = conn_type.to_owned();
+                    let conn_type_str = match <zbus::zvariant::Value<'_> as Clone>::clone(&conn_type_value).downcast::<String>() {
+                        Some(s) => s,
+                        None => continue,
+                    };
+                    
+                    // Si es una conexión WiFi, verificar el SSID
+                    if conn_type_str == "802-11-wireless" {
+                        if let Some(wireless) = settings.get("802-11-wireless") {
+                            let wireless_value = wireless.to_owned();
+                            let wireless_dict = match <zbus::zvariant::Value<'_> as Clone>::clone(&wireless_value).downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>() {
+                                Some(dict) => dict,
+                                None => continue,
+                            };
+                            
+                            if let Some(ssid_value) = wireless_dict.get("ssid") {
+                                let ssid_owned = ssid_value.to_owned();
+                                if let Some(ssid_bytes) = <zbus::zvariant::Value<'_> as Clone>::clone(&ssid_owned).downcast::<Vec<u8>>() {
+                                    if let Ok(conn_ssid_str) = String::from_utf8(ssid_bytes) {
+                                        // Si el SSID coincide, eliminar la conexión
+                                        if conn_ssid_str == ssid {
+                                            conn_proxy.call::<_, _, ()>("Delete", &())?;
+                                            return Ok(true);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // No se encontró ninguna conexión con el SSID especificado
+        Ok(false)
+    }
 }
-
 
 
 /// Initialize the network manager plugin

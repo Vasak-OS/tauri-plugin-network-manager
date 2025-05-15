@@ -30,6 +30,24 @@ pub fn connect_to_wifi(state: State<'_, NetworkManagerState<tauri::Wry>>, config
     state.inner().connect_to_wifi(config)
 }
 
+/// Disconnect from the current WiFi network
+#[tauri::command]
+pub fn disconnect_from_wifi(state: State<'_, NetworkManagerState<tauri::Wry>>) -> Result<()> {
+    state.inner().disconnect_from_wifi()
+}
+
+/// Get the list of saved WiFi networks
+#[tauri::command]
+pub fn get_saved_wifi_networks(state: State<'_, NetworkManagerState<tauri::Wry>>) -> Result<Vec<NetworkInfo>> {
+    state.inner().get_saved_wifi_networks()
+}
+
+/// Delete a saved WiFi connection by SSID
+#[tauri::command]
+pub fn delete_wifi_connection(state: State<'_, NetworkManagerState<tauri::Wry>>, ssid: String) -> Result<bool> {
+    state.inner().delete_wifi_connection(&ssid)
+}
+
 /// Toggle network on or off
 #[tauri::command]
 pub fn toggle_network_state(state: State<'_, NetworkManagerState<tauri::Wry>>, enabled: bool) -> Result<bool> {
