@@ -2,11 +2,14 @@ import { invoke } from '@tauri-apps/api/core';
 
 export interface NetworkInfo {
   name: string;
-  signal_strength: number;
+  ssid: string;
+  connection_type: string;
   icon: string;
+  ip_address: string;
+  mac_address: string;
+  signal_strength: number;
+  security_type: WiFiSecurityType;
   is_connected: boolean;
-  ip_address?: string;
-  mac_address?: string;
 }
 
 export enum WiFiSecurityType {
@@ -25,25 +28,29 @@ export interface WiFiConnectionConfig {
   username?: string; // Para WPA-EAP
 }
 
-export class NetworkManager {
-  static async getCurrentNetworkState(): Promise<NetworkInfo> {
-    return await invoke('plugin:network-manager|get_network_state');
-  }
+export interface NetworkManagerState {
+  is_enabled: boolean;
+  is_connected: boolean;
+  current_network: NetworkInfo | null;
+}
 
-  static async listWifiNetworks(): Promise<NetworkInfo[]> {
-    return await invoke('plugin:network-manager|list_wifi_networks');
-  }
+export async function getCurrentNetworkState(): Promise<NetworkInfo> {
+  return await invoke('plugin:network-manager|get_network_state');
+}
 
-  static async connectToWifi(config: WiFiConnectionConfig): Promise<void> {
-    return await invoke('plugin:network-manager|connect_to_wifi', {
-      ssid: config.ssid,
-      password: config.password,
-      security_type: config.securityType,
-      username: config.username
-    });
-  }
+export async function listWifiNetworks(): Promise<NetworkInfo[]> {
+  return await invoke('plugin:network-manager|list_wifi_networks');
+}
 
-  static async toggleNetwork(enable: boolean): Promise<void> {
-    return await invoke('plugin:network-manager|toggle_network', { enable });
-  }
+export async function connectToWifi(config: WiFiConnectionConfig): Promise<void> {
+  return await invoke('plugin:network-manager|connect_to_wifi', {
+    ssid: config.ssid,
+    password: config.password,
+    security_type: config.securityType,
+    username: config.username
+  });
+}
+
+export async function toggleNetwork(enable: boolean): Promise<void> {
+  return await invoke('plugin:network-manager|toggle_network', { enable });
 }
