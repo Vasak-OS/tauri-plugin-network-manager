@@ -35,8 +35,6 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         })
     }
     
-
-
     pub fn get_current_network_state(&self) -> Result<NetworkInfo> {
         // Create a NetworkManager proxy
         let _network_manager_proxy = zbus::blocking::Proxy::new(
@@ -469,7 +467,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
     }
 
     /// Connect to a WiFi network
-    pub fn connect_to_wifi(&self, config: WiFiConnectionConfig) -> Result<()> {
+    pub async fn connect_to_wifi(&self, config: WiFiConnectionConfig) -> Result<()> {
         // Create connection settings
         let mut connection_settings = HashMap::new();
         let mut wifi_settings = HashMap::new();
@@ -624,7 +622,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
     }
     
     /// Disconnect from the current WiFi network
-    pub fn disconnect_from_wifi(&self) -> Result<()> {
+    pub async fn disconnect_from_wifi(&self) -> Result<()> {
         // Obtener el estado actual de la red para identificar la conexión activa
         let current_state = self.get_current_network_state()?;
         
