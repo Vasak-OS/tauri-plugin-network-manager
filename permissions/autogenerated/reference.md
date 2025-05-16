@@ -4,7 +4,13 @@ Default permissions for the plugin
 
 #### This default permission set includes the following:
 
-- `allow-ping`
+- `get_network_state`
+- `list_wifi_networks`
+- `connect_to_wifi`
+- `disconnect_from_wifi`
+- `get_saved_wifi_networks`
+- `delete_wifi_connection`
+- `toggle_network_state`
 
 ## Permission Table
 
@@ -44,6 +50,58 @@ Denies the connect_to_wifi command without any pre-configured scope.
 <tr>
 <td>
 
+`network-manager:allow-delete-wifi-connection`
+
+</td>
+<td>
+
+Enables the delete_wifi_connection command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:deny-delete-wifi-connection`
+
+</td>
+<td>
+
+Denies the delete_wifi_connection command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:allow-disconnect-from-wifi`
+
+</td>
+<td>
+
+Enables the disconnect_from_wifi command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:deny-disconnect-from-wifi`
+
+</td>
+<td>
+
+Denies the disconnect_from_wifi command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `network-manager:allow-get-network-state`
 
 </td>
@@ -63,6 +121,32 @@ Enables the get_network_state command without any pre-configured scope.
 <td>
 
 Denies the get_network_state command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:allow-get-saved-wifi-networks`
+
+</td>
+<td>
+
+Enables the get_saved_wifi_networks command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:deny-get-saved-wifi-networks`
+
+</td>
+<td>
+
+Denies the get_saved_wifi_networks command without any pre-configured scope.
 
 </td>
 </tr>
@@ -141,6 +225,32 @@ Enables the toggle_network command without any pre-configured scope.
 <td>
 
 Denies the toggle_network command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:allow-toggle-network-state`
+
+</td>
+<td>
+
+Enables the toggle_network_state command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:deny-toggle-network-state`
+
+</td>
+<td>
+
+Denies the toggle_network_state command without any pre-configured scope.
 
 </td>
 </tr>
