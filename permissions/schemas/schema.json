@@ -307,6 +307,30 @@
           "markdownDescription": "Denies the connect_to_wifi command without any pre-configured scope."
         },
         {
+          "description": "Enables the delete_wifi_connection command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-delete-wifi-connection",
+          "markdownDescription": "Enables the delete_wifi_connection command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the delete_wifi_connection command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-delete-wifi-connection",
+          "markdownDescription": "Denies the delete_wifi_connection command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the disconnect_from_wifi command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-disconnect-from-wifi",
+          "markdownDescription": "Enables the disconnect_from_wifi command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the disconnect_from_wifi command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-disconnect-from-wifi",
+          "markdownDescription": "Denies the disconnect_from_wifi command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_network_state command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-network-state",
@@ -317,6 +341,18 @@
           "type": "string",
           "const": "deny-get-network-state",
           "markdownDescription": "Denies the get_network_state command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_saved_wifi_networks command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-saved-wifi-networks",
+          "markdownDescription": "Enables the get_saved_wifi_networks command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_saved_wifi_networks command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-saved-wifi-networks",
+          "markdownDescription": "Denies the get_saved_wifi_networks command without any pre-configured scope."
         },
         {
           "description": "Enables the list_wifi_networks command without any pre-configured scope.",
@@ -355,10 +391,22 @@
           "markdownDescription": "Denies the toggle_network command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`",
+          "description": "Enables the toggle_network_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-toggle-network-state",
+          "markdownDescription": "Enables the toggle_network_state command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the toggle_network_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-toggle-network-state",
+          "markdownDescription": "Denies the toggle_network_state command without any pre-configured scope."
+        },
+        {
+          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `get_network_state`\n- `list_wifi_networks`\n- `connect_to_wifi`\n- `disconnect_from_wifi`\n- `get_saved_wifi_networks`\n- `delete_wifi_connection`\n- `toggle_network_state`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`"
+          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `get_network_state`\n- `list_wifi_networks`\n- `connect_to_wifi`\n- `disconnect_from_wifi`\n- `get_saved_wifi_networks`\n- `delete_wifi_connection`\n- `toggle_network_state`"
         }
       ]
     }

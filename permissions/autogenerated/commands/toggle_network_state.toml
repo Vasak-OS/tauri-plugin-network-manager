@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-toggle-network-state"
+description = "Enables the toggle_network_state command without any pre-configured scope."
+commands.allow = ["toggle_network_state"]
+
+[[permission]]
+identifier = "deny-toggle-network-state"
+description = "Denies the toggle_network_state command without any pre-configured scope."
+commands.deny = ["toggle_network_state"]

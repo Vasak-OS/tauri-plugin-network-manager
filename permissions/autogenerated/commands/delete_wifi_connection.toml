@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-delete-wifi-connection"
+description = "Enables the delete_wifi_connection command without any pre-configured scope."
+commands.allow = ["delete_wifi_connection"]
+
+[[permission]]
+identifier = "deny-delete-wifi-connection"
+description = "Denies the delete_wifi_connection command without any pre-configured scope."
+commands.deny = ["delete_wifi_connection"]

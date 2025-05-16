@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-disconnect-from-wifi"
+description = "Enables the disconnect_from_wifi command without any pre-configured scope."
+commands.allow = ["disconnect_from_wifi"]
+
+[[permission]]
+identifier = "deny-disconnect-from-wifi"
+description = "Denies the disconnect_from_wifi command without any pre-configured scope."
+commands.deny = ["disconnect_from_wifi"]
