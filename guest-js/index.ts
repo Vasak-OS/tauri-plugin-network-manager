@@ -28,12 +28,6 @@ export interface WiFiConnectionConfig {
   username?: string; // Para WPA-EAP
 }
 
-export interface NetworkManagerState {
-  is_enabled: boolean;
-  is_connected: boolean;
-  current_network: NetworkInfo | null;
-}
-
 export async function getCurrentNetworkState(): Promise<NetworkInfo> {
   return await invoke('plugin:network-manager|get_network_state');
 }
