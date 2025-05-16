@@ -1,9 +1,15 @@
-use commands::{connect_to_wifi, disconnect_from_wifi, get_network_state, get_saved_wifi_networks, delete_wifi_connection, list_wifi_networks, toggle_network_state};
-use tauri::{plugin::TauriPlugin, Manager, Runtime};
+use commands::{
+    connect_to_wifi, delete_wifi_connection, disconnect_from_wifi, get_network_state,
+    get_saved_wifi_networks, list_wifi_networks, toggle_network_state,
+};
+pub use models::{NetworkInfo, WiFiConnectionConfig, WiFiSecurityType};
 use serde::{Deserialize, Serialize};
 use std::result::Result;
 use std::sync::{Arc, RwLock};
-pub use models::{NetworkInfo, WiFiSecurityType, WiFiConnectionConfig};
+use tauri::{
+    plugin::{Builder, TauriPlugin},
+    Manager, Runtime,
+};
 
 #[cfg(desktop)]
 pub mod desktop;
@@ -49,7 +55,7 @@ impl<R: Runtime> NetworkManagerState<R> {
             _none => Err(NetworkError::NotInitialized),
         }
     }
-    
+
     pub fn get_saved_wifi_networks(&self) -> Result<Vec<NetworkInfo>, NetworkError> {
         let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
         match manager.as_ref() {
@@ -57,7 +63,7 @@ impl<R: Runtime> NetworkManagerState<R> {
             _none => Err(NetworkError::NotInitialized),
         }
     }
-    
+
     pub fn delete_wifi_connection(&self, ssid: &str) -> Result<bool, NetworkError> {
         let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
         match manager.as_ref() {
@@ -85,22 +91,7 @@ struct NetworkRequest {
 
 /// Initializes the plugin.
 pub fn init() -> TauriPlugin<tauri::Wry> {
-    tauri::plugin::Builder::new("network-manager")
-        .setup(|app, _api| -> Result<(), Box<dyn std::error::Error>> {
-            #[cfg(desktop)]
-            {
-                // Removed tokio runtime initialization
-                let rt = tokio::runtime::Builder::new_multi_thread()
-                    .enable_all()
-                    .build()?;
-let network_manager = rt.block_on(async {
-                    crate::desktop::init(&app, _api).await
-                })?;
-                
-                app.manage(NetworkManagerState::<tauri::Wry>::new(Some(network_manager)));
-            }
-            Ok(())
-        })
+    Builder::new("network-manager")
         .invoke_handler(tauri::generate_handler![
             get_network_state,
             list_wifi_networks,
@@ -110,9 +101,22 @@ let network_manager = rt.block_on(async {
             delete_wifi_connection,
             toggle_network_state,
         ])
+        .setup(|app, _api| -> Result<(), Box<dyn std::error::Error>> {
+            #[cfg(desktop)]
+            // Removed tokio runtime initialization
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            let network_manager = rt.block_on(async { crate::desktop::init(&app, _api).await })?;
+
+            app.manage(NetworkManagerState::<tauri::Wry>::new(Some(
+                network_manager,
+            )));
+
+            Ok(())
+        })
         .build()
 }
-
 
 /// Extensions to [`tauri::App`], [`tauri::AppHandle`] and [`tauri::Window`] to access the network-manager APIs.
 pub trait NetworkManagerExt<R: Runtime> {
@@ -122,12 +126,14 @@ pub trait NetworkManagerExt<R: Runtime> {
 impl<R: Runtime + Clone, T: Manager<R>> NetworkManagerExt<R> for T {
     fn network_manager(&self) -> Option<crate::models::VSKNetworkManager<'static, R>> {
         self.try_state::<NetworkManagerState<R>>()
-            .and_then(|state| state.manager.read().ok().and_then(|m| {
-                m.as_ref().map(|x| crate::models::VSKNetworkManager {
-                    connection: x.connection.clone(),
-                    proxy: x.proxy.clone(),
-                    app: self.app_handle().clone(),
+            .and_then(|state| {
+                state.manager.read().ok().and_then(|m| {
+                    m.as_ref().map(|x| crate::models::VSKNetworkManager {
+                        connection: x.connection.clone(),
+                        proxy: x.proxy.clone(),
+                        app: self.app_handle().clone(),
+                    })
                 })
-            }))
+            })
     }
 }
