@@ -36,14 +36,6 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
     }
     
     pub fn get_current_network_state(&self) -> Result<NetworkInfo> {
-        // Create a NetworkManager proxy
-        let _network_manager_proxy = zbus::blocking::Proxy::new(
-            &self.connection,
-            "org.freedesktop.NetworkManager",
-            "/org/freedesktop/NetworkManager",
-            "org.freedesktop.NetworkManager",
-        )?;
-
         // Get active connections
         let active_connections_variant = self.proxy.get(
             InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager"),
@@ -56,14 +48,6 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                 // Get the first active connection path
                 match arr[0] {
                     zbus::zvariant::Value::ObjectPath(ref path) => {
-                        // Create a proxy for the active connection
-                        let _connection_proxy = zbus::blocking::Proxy::new(
-                            &self.connection,
-                            "org.freedesktop.NetworkManager",
-                            path,
-                            "org.freedesktop.NetworkManager.Connection.Active",
-                        )?;
-
                         // Get devices for this connection
                         // Crear un proxy de propiedades para obtener las propiedades
                         let properties_proxy = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
@@ -91,14 +75,6 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                             _ => return Ok(NetworkInfo::default()),
                         };
 
-                        // Create a device proxy
-                        let _device_proxy = zbus::blocking::Proxy::new(
-                            &self.connection,
-                            "org.freedesktop.NetworkManager",
-                            &device_path,
-                            "org.freedesktop.NetworkManager.Device",
-                        )?;
-
                         // Retrieve connection details
                         // Crear un proxy de propiedades para el dispositivo
                         let device_properties_proxy = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
@@ -113,6 +89,8 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                             "DeviceType",
                         )?;
 
+                        println!("DeviceType: {:?}", connection_type);
+
                         // Determine connection type
                         let connection_type_str = match connection_type.downcast_ref() {
                             Some(zbus::zvariant::Value::U32(device_type)) => match device_type {
@@ -122,6 +100,8 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                             },
                             _ => "Unknown".to_string(),
                         };
+
+                        println!("Connection type: {}", connection_type_str);
 
                         // Default network info
                         let mut network_info = NetworkInfo {
