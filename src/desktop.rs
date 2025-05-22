@@ -121,8 +121,6 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                             _ => false,
                         };
 
-                        println!("DeviceType: {:?}", connection_type);
-
                         // Determine connection type
                         let connection_type_str = match connection_type.downcast_ref() {
                             Some(zbus::zvariant::Value::U32(device_type)) => match device_type {
@@ -132,8 +130,6 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                             },
                             _ => "Unknown".to_string(),
                         };
-
-                        println!("Connection type: {}", connection_type_str);
 
                         // Default network info
                         let mut network_info = NetworkInfo {
@@ -148,9 +144,20 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                             is_connected: is_connected && Self::has_internet_connectivity(),
                         };
 
+                        let hw_address_variant = device_properties_proxy.get(
+                            InterfaceName::from_static_str_unchecked(
+                                "org.freedesktop.NetworkManager.Device",
+                            ),
+                            "HwAddress",
+                        )?;
+
+                        network_info.mac_address = match hw_address_variant.downcast_ref() {
+                            Some(zbus::zvariant::Value::Str(s)) => s.to_string(),
+                            _ => "00:00:00:00:00:00".to_string(),
+                        };
+
                         // For WiFi networks, get additional details
                         if connection_type_str == "WiFi" {
-                            println!("This is a WiFi device");
                             // Get active access point
                             // Crear un proxy de propiedades para el dispositivo inalámbrico
                             let wireless_properties_proxy =
@@ -292,8 +299,6 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                             }
                         }
 
-                        // Mark as connected if we have a valid IP
-                        println!("IP Address: {}", network_info.ip_address);
                         println!("Network Info: {:?}", network_info);
 
                         Ok(network_info)
