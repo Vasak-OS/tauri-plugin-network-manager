@@ -1,9 +1,9 @@
 use std::collections::HashMap;
+use std::process::Command;
 use std::sync::mpsc;
 use tauri::{plugin::PluginApi, AppHandle, Runtime};
 use zbus::names::InterfaceName;
 use zbus::zvariant::Value;
-use std::process::Command;
 
 use crate::error::Result;
 use crate::models::*;
@@ -261,8 +261,6 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                             "Ip4Config",
                         )?;
 
-                        println!("IP4Config: {:?}", ip4_config_path);
-
                         // Retrieve IP address if available
                         if let Some(zbus::zvariant::Value::ObjectPath(config_path)) =
                             ip4_config_path.downcast_ref()
@@ -282,15 +280,12 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                             )?;
 
                             if let Some(Value::Array(addr_arr)) = addresses_variant.downcast_ref() {
-                                if !addr_arr.is_empty() {
-                                    let first_addr = &addr_arr[0];
-                                    if let zbus::zvariant::Value::Structure(addr_tuple) = first_addr {
-                                        let fields = addr_tuple.fields();
-                                        if let Some(zbus::zvariant::Value::U32(ip_int)) = fields.get(0)
-                                        {
+                                if let Some(Value::Array(ip_tuple)) = addr_arr.first() {
+                                    if ip_tuple.len() >= 1 {
+                                        if let Value::U32(ip_int) = &ip_tuple[0] {
                                             use std::net::Ipv4Addr;
                                             network_info.ip_address =
-                                                Ipv4Addr::from(*ip_int).to_string();
+                                                Ipv4Addr::from((*ip_int).to_be()).to_string();
                                         }
                                     }
                                 }
