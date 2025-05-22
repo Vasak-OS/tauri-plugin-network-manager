@@ -85,7 +85,7 @@ pub struct WiFiConnectionConfig {
 
 // Removed duplicate init function
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct VSKNetworkManager<'a, R: Runtime> {
     pub connection: zbus::blocking::Connection,
     pub proxy: zbus::blocking::fdo::PropertiesProxy<'a>,
