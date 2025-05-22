@@ -3,6 +3,7 @@ use std::sync::mpsc;
 use tauri::{plugin::PluginApi, AppHandle, Runtime};
 use zbus::names::InterfaceName;
 use zbus::zvariant::Value;
+use std::process::Command;
 
 use crate::error::Result;
 use crate::models::*;
@@ -40,6 +41,16 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             proxy,
             app,
         })
+    }
+
+    fn has_internet_connectivity() -> bool {
+        Command::new("ping")
+            .arg("-c")
+            .arg("1")
+            .arg("8.8.8.8")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
     }
 
     pub fn get_current_network_state(&self) -> Result<NetworkInfo> {
@@ -98,6 +109,18 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                             "DeviceType",
                         )?;
 
+                        let state_variant = properties_proxy.get(
+                            InterfaceName::from_static_str_unchecked(
+                                "org.freedesktop.NetworkManager.Connection.Active",
+                            ),
+                            "State",
+                        )?;
+
+                        let is_connected = match state_variant.downcast_ref() {
+                            Some(zbus::zvariant::Value::U32(state)) => *state == 2, // 2 = ACTIVATED
+                            _ => false,
+                        };
+
                         println!("DeviceType: {:?}", connection_type);
 
                         // Determine connection type
@@ -122,7 +145,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                             mac_address: "00:00:00:00:00:00".to_string(),
                             signal_strength: 0,
                             security_type: WiFiSecurityType::None,
-                            is_connected: false,
+                            is_connected: is_connected && Self::has_internet_connectivity(),
                         };
 
                         // For WiFi networks, get additional details
@@ -226,10 +249,9 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                     _ => WiFiSecurityType::None,
                                 };
                             }
-                        }
-                        else {
+                        } else {
                             // This is a wired connection
-                            network_info.icon = Self::get_wired_icon(true);
+                            network_info.icon = Self::get_wired_icon(network_info.is_connected);
                         }
                         // Get IP configuration
                         let ip4_config_path = device_properties_proxy.get(
@@ -245,13 +267,6 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                         if let Some(zbus::zvariant::Value::ObjectPath(config_path)) =
                             ip4_config_path.downcast_ref()
                         {
-                            let _ip_config_proxy = zbus::blocking::Proxy::new(
-                                &self.connection,
-                                "org.freedesktop.NetworkManager",
-                                config_path,
-                                "org.freedesktop.NetworkManager.IP4Config",
-                            )?;
-
                             // Crear un proxy de propiedades para la configuración IP
                             let ip_config_properties_proxy =
                                 zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
@@ -268,23 +283,14 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
                             if let Some(Value::Array(addr_arr)) = addresses_variant.downcast_ref() {
                                 if !addr_arr.is_empty() {
-                                    if let zbus::zvariant::Value::Structure(ref addr_tuple) =
-                                        addr_arr[0]
-                                    {
-                                        // Acceder a los elementos de la estructura
+                                    let first_addr = &addr_arr[0];
+                                    if let zbus::zvariant::Value::Structure(addr_tuple) = first_addr {
                                         let fields = addr_tuple.fields();
-                                        if !fields.is_empty() {
-                                            if let Some(zbus::zvariant::Value::U32(ip_int)) =
-                                                fields[0].downcast_ref()
-                                            {
-                                                network_info.ip_address = format!(
-                                                    "{}.{}.{}.{}",
-                                                    (ip_int & 0xFF),
-                                                    (ip_int >> 8) & 0xFF,
-                                                    (ip_int >> 16) & 0xFF,
-                                                    (ip_int >> 24) & 0xFF
-                                                );
-                                            }
+                                        if let Some(zbus::zvariant::Value::U32(ip_int)) = fields.get(0)
+                                        {
+                                            use std::net::Ipv4Addr;
+                                            network_info.ip_address =
+                                                Ipv4Addr::from(*ip_int).to_string();
                                         }
                                     }
                                 }
