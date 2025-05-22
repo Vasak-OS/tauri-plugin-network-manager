@@ -45,6 +45,6 @@ export async function connectToWifi(config: WiFiConnectionConfig): Promise<void>
   });
 }
 
-export async function toggleNetwork(enable: boolean): Promise<void> {
-  return await invoke('plugin:network-manager|toggle_network', { enable });
+export async function toggleNetwork(enabled: boolean): Promise<void> {
+  return await invoke('plugin:network-manager|toggle_network_state', { enabled });
 }
