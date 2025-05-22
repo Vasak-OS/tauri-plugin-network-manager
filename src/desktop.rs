@@ -11,12 +11,19 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
     /// Get WiFi icon based on signal strength
     fn get_wifi_icon(strength: u8) -> String {
         match strength {
-            0..=20 => "wifi-signal-weak".to_string(),
-            21..=40 => "wifi-signal-low".to_string(),
-            41..=60 => "wifi-signal-medium".to_string(),
-            61..=80 => "wifi-signal-good".to_string(),
-            81..=100 => "wifi-signal-excellent".to_string(),
-            _ => "wifi-signal-none".to_string(),
+            0..=25 => "network-wireless-signal-weak-symbolic".to_string(),
+            26..=50 => "network-wireless-signal-ok-symbolic".to_string(),
+            51..=75 => "network-wireless-signal-good-symbolic".to_string(),
+            76..=100 => "network-wireless-signal-excellent-symbolic".to_string(),
+            _ => "network-wireless-signal-none-symbolic".to_string(),
+        }
+    }
+
+    fn get_wired_icon(is_connected: bool) -> String {
+        if is_connected {
+            "network-wired-symbolic".to_string()
+        } else {
+            "network-offline-symbolic".to_string()
         }
     }
 
@@ -92,13 +99,12 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                         )?;
 
                         println!("DeviceType: {:?}", connection_type);
-                        println!("DeviceType: {:?}", connection_type);
 
                         // Determine connection type
                         let connection_type_str = match connection_type.downcast_ref() {
                             Some(zbus::zvariant::Value::U32(device_type)) => match device_type {
-                                2 => "Ethernet".to_string(),
-                                3 => "WiFi".to_string(),
+                                1 => "Ethernet".to_string(),
+                                2 => "WiFi".to_string(),
                                 _ => "Unknown".to_string(),
                             },
                             _ => "Unknown".to_string(),
@@ -110,8 +116,8 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                         let mut network_info = NetworkInfo {
                             name: "Unknown".to_string(),
                             ssid: "Unknown".to_string(),
-                            connection_type: connection_type_str,
-                            icon: "network-offline".to_string(),
+                            connection_type: connection_type_str.clone(),
+                            icon: "network-offline-symbolic".to_string(),
                             ip_address: "0.0.0.0".to_string(),
                             mac_address: "00:00:00:00:00:00".to_string(),
                             signal_strength: 0,
@@ -120,12 +126,8 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                         };
 
                         // For WiFi networks, get additional details
-                        if let Ok(_wireless_proxy) = zbus::blocking::Proxy::new(
-                            &self.connection,
-                            "org.freedesktop.NetworkManager",
-                            &device_path,
-                            "org.freedesktop.NetworkManager.Device.Wireless",
-                        ) {
+                        if connection_type_str == "WiFi" {
+                            println!("This is a WiFi device");
                             // Get active access point
                             // Crear un proxy de propiedades para el dispositivo inalámbrico
                             let wireless_properties_proxy =
@@ -225,7 +227,10 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                 };
                             }
                         }
-
+                        else {
+                            // This is a wired connection
+                            network_info.icon = Self::get_wired_icon(true);
+                        }
                         // Get IP configuration
                         let ip4_config_path = device_properties_proxy.get(
                             InterfaceName::from_static_str_unchecked(
@@ -288,13 +293,20 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
                         // Mark as connected if we have a valid IP
                         println!("IP Address: {}", network_info.ip_address);
+                        println!("Network Info: {:?}", network_info);
 
                         Ok(network_info)
                     }
-                    _ => Ok(NetworkInfo::default()),
+                    _ => {
+                        println!("No valid device path found");
+                        Ok(NetworkInfo::default())
+                    }
                 }
             }
-            _ => Ok(NetworkInfo::default()),
+            _ => {
+                println!("No active connections found");
+                Ok(NetworkInfo::default())
+            }
         }
     }
 

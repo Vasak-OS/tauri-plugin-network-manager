@@ -9,7 +9,7 @@ use crate::error::Result;
 pub async fn get_network_state(app_handle: AppHandle) -> Result<NetworkInfo> {
     let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
     let manager = state.manager.read().map_err(|_| NetworkError::LockError)?;
-    
+
     match manager.as_ref() {
         Some(manager) => {
             let result = manager.get_current_network_state();
