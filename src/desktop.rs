@@ -299,8 +299,6 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                             }
                         }
 
-                        println!("Network Info: {:?}", network_info);
-
                         Ok(network_info)
                     }
                     _ => {

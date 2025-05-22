@@ -44,7 +44,7 @@ pub trait ConnectionProxy {
   fn call_add_connection(&self, settings: &HashMap<String, HashMap<String, String>>) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkInfo {
     pub name: String,
     pub ssid: String,
@@ -55,6 +55,22 @@ pub struct NetworkInfo {
     pub signal_strength: u8,
     pub security_type: WiFiSecurityType,
     pub is_connected: bool,
+}
+
+impl Default for NetworkInfo {
+    fn default() -> Self {
+        Self {
+            name: String::from("Unknown"),
+            ssid: String::from("Unknown"),
+            connection_type: String::from("Unknown"),
+            icon: String::from("network-offline-symbolic"), // icono por defecto
+            ip_address: String::from("0.0.0.0"),
+            mac_address: String::from("00:00:00:00:00:00"),
+            signal_strength: 0,
+            security_type: WiFiSecurityType::None,
+            is_connected: false,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
