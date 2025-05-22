@@ -584,28 +584,31 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
     /// Toggle network state
     pub fn toggle_network_state(&self, enabled: bool) -> Result<bool> {
-    // Crear un proxy para NetworkManager
-    let nm_proxy = zbus::blocking::Proxy::new(
-        &self.connection,
-        "org.freedesktop.NetworkManager",
-        "/org/freedesktop/NetworkManager",
-        "org.freedesktop.NetworkManager",
-    )?;
+        let nm_proxy = zbus::blocking::Proxy::new(
+            &self.connection,
+            "org.freedesktop.NetworkManager",
+            "/org/freedesktop/NetworkManager",
+            "org.freedesktop.NetworkManager",
+        )?;
 
-    // Habilitar/deshabilitar toda la red (afecta WiFi y Ethernet)
-    nm_proxy.set_property("NetworkingEnabled", enabled)?;
+        let state = if enabled { "on" } else { "off" };
+        let output = Command::new("nmcli")
+            .arg("networking")
+            .arg(state)
+            .output()?;
 
-    // Habilitar/deshabilitar WiFi
-    nm_proxy.set_property("WirelessEnabled", enabled)?;
+        if !output.status.success() {
+            println!(
+                "nmcli networking {} failed: {}",
+                state,
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
 
-    // Habilitar/deshabilitar Ethernet (si tu versión de NetworkManager lo soporta)
-    let _ = nm_proxy.set_property("WiredEnabled", enabled);
-
-    // Verificar el estado general
-    let current_state: bool = nm_proxy.get_property("NetworkingEnabled")?;
-
-    Ok(current_state)
-}
+        // Verifica el estado general
+        let current_state: bool = nm_proxy.get_property("NetworkingEnabled")?;
+        Ok(current_state)
+    }
 
     /// Listen for network changes
     pub fn listen_network_changes(&self) -> Result<mpsc::Receiver<NetworkInfo>> {
