@@ -5,9 +5,14 @@ A Rust-based Tauri plugin for managing network connections on Linux systems usin
 ## Features
 
 - Get current network state
+- Toggle network connections
+- Lisen for network state changes
+
+## Future Work
+
 - List available WiFi networks
 - Connect to WiFi networks
-- Toggle network connections
+- Disconnect from WiFi networks
 
 ## Installation
 
@@ -17,50 +22,68 @@ Add this plugin to your Tauri project by installing the package and registering 
 
 ```toml
 [dependencies]
-tauri-plugin-network-manager = { git = "https://github.com/yourusername/tauri-plugin-network-manager" }
+tauri-plugin-network-manager = { git = "https://github.com/Vasak-OS/tauri-plugin-network-manager" }
 ```
 
-### TypeScript
+### Node.js
 
-```typescript
-import { NetworkManager } from 'tauri-plugin-network-manager';
+```bash
+bun add @vasakgroup/plugin-network-manager  
 ```
 
 ## Usage
 
-### Get Current Network State
+```vue
+<template>
+  <button @click="toggleCurrentNetwork"
+    class="p-2 rounded-xl bg-white/50 dark:bg-black/50 hover:bg-white/70 dark:hover:bg-black/70 transition-colors h-[70px] w-[70px]"
+    :disabled="isLoading">
+    <img :src="networkIconSrc" :alt="networkAlt" class="m-auto w-[50px] h-[50px]" />
+  </button>
+</template>
 
-```typescript
-const networkState = await NetworkManager.getCurrentNetworkState();
-console.log(networkState);
-// {
-//   name: 'MyWiFi',
-//   signal_strength: 85,
-//   icon: 'wifi-4',
-//   is_connected: true,
-//   ip_address: '192.168.1.100',
-//   mac_address: '00:11:22:33:44:55'
-// }
-```
+<script setup lang="ts">
+import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { listen } from '@tauri-apps/api/event';
+import { getCurrentNetworkState, type NetworkInfo, toggleNetwork } from '@vasakgroup/plugin-network-manager';
 
-### List WiFi Networks
+let ulisten: Function | null = null;
 
-```typescript
-const networks = await NetworkManager.listWifiNetworks();
-console.log(networks);
-```
+const networkState = ref<NetworkInfo>(
+  {
+   ...
+  }
+);
 
-### Connect to WiFi
+const toggleCurrentNetwork = async () => {
+  try {
+    await toggleNetwork(!networkState.value.is_connected);
+  } catch (error) {
+    console.error('Error toggling network:', error);
+  }
+};
 
-```typescript
-await NetworkManager.connectToWifi('MyWiFi', 'password123');
-```
+const getCurrentNetwork = async () => {
+  try {
+    networkState.value = await getCurrentNetworkState();
+  } catch (error) {
+    console.error('Error getting current network state:', error);
+  }
+};
 
-### Toggle Network
+onMounted(async () => {
+  await getCurrentNetwork();
+  ulisten = await listen<NetworkInfo>('network-changed', async (event) => {
+    networkState.value = event.payload;
+  });
+});
 
-```typescript
-await NetworkManager.toggleNetwork(true);  // Enable network
-await NetworkManager.toggleNetwork(false); // Disable network
+onUnmounted(() => {
+  if (ulisten !== null) {
+    ulisten();
+  }
+});
+</script>
 ```
 
 ## Requirements
@@ -69,6 +92,7 @@ await NetworkManager.toggleNetwork(false); // Disable network
 - Rust 1.77.2+
 - Tauri 2.5+
 
-## License
+## Dependencies
 
-MIT License
+- networkmanager
+- dbus
