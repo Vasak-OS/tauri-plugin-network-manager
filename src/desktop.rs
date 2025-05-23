@@ -616,21 +616,17 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
         // Crear un hilo para escuchar los cambios de red
         std::thread::spawn(move || {
-            // Intentar crear una conexión para escuchar eventos
             match zbus::blocking::Connection::system() {
                 Ok(conn) => {
-                    // Crear un proxy para las señales de NetworkManager
+                    // Proxy para el objeto raíz, interfaz DBus.Properties
                     if let Ok(proxy) = zbus::blocking::Proxy::new(
                         &conn,
                         "org.freedesktop.NetworkManager",
                         "/org/freedesktop/NetworkManager",
                         "org.freedesktop.NetworkManager",
                     ) {
-                        // Configurar un manejador para la señal PropertiesChanged
-                        if let Ok(mut signal) = proxy.receive_signal("PropertiesChanged") {
-                            // Bucle para procesar señales
+                        if let Ok(mut signal) = proxy.receive_signal("StateChanged") {
                             while let Some(_msg) = signal.next() {
-                                // Intentar obtener el estado actual de la red
                                 let network_manager = VSKNetworkManager {
                                     connection: connection_clone.clone(),
                                     proxy: zbus::blocking::fdo::PropertiesProxy::builder(
@@ -648,9 +644,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                 if let Ok(network_info) =
                                     network_manager.get_current_network_state()
                                 {
-                                    // Enviar la información de la red actualizada
                                     if tx.send(network_info).is_err() {
-                                        // El receptor fue cerrado, salir del bucle
                                         break;
                                     }
                                 }
@@ -940,6 +934,5 @@ pub async fn init(
     app: &AppHandle<tauri::Wry>,
     _api: PluginApi<tauri::Wry, ()>,
 ) -> Result<VSKNetworkManager<'static, tauri::Wry>> {
-    // Initialize the network manager
-    VSKNetworkManager::new(app.clone()).await
+    Ok(VSKNetworkManager::new(app.clone()).await?)
 }

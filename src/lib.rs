@@ -8,7 +8,10 @@ use std::result::Result;
 use std::sync::{Arc, RwLock};
 use tauri::{
     plugin::{Builder, TauriPlugin},
-    Manager, Runtime,
+    AppHandle,
+    Runtime,
+    Manager,
+    Emitter
 };
 
 #[cfg(desktop)]
@@ -23,6 +26,29 @@ pub use crate::error::{NetworkError, Result as NetworkResult};
 #[derive(Default)]
 pub struct NetworkManagerState<R: Runtime> {
     pub manager: Arc<RwLock<Option<crate::models::VSKNetworkManager<'static, R>>>>,
+}
+
+pub fn spawn_network_change_emitter<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    network_manager: crate::models::VSKNetworkManager<'static, R>,
+) {
+    println!("Iniciando escucha de cambios de red");
+    let rx = match network_manager.listen_network_changes() {
+        Ok(rx) => rx,
+        Err(e) => {
+            eprintln!("No se pudo escuchar cambios de red: {:?}", e);
+            return;
+        }
+    };
+
+    std::thread::spawn(move || {
+        println!("Escuchando cambios de red");
+        for network_info in rx {
+            // Emitir evento a Tauri
+            println!("Cambio de red detectado: {:?}", network_info);
+            let _ = app.emit("network-changed", &network_info);
+        }
+    });
 }
 
 impl<R: Runtime> NetworkManagerState<R> {
@@ -112,6 +138,21 @@ pub fn init() -> TauriPlugin<tauri::Wry> {
             app.manage(NetworkManagerState::<tauri::Wry>::new(Some(
                 network_manager,
             )));
+
+            app.state::<NetworkManagerState<tauri::Wry>>()
+                .manager
+                .read()
+                .map_err(|_| NetworkError::LockError)?
+                .as_ref()
+                .map(|manager| {
+                    // Clone the manager with a 'static lifetime
+                    let manager_static: crate::models::VSKNetworkManager<'static, tauri::Wry> = crate::models::VSKNetworkManager {
+                        connection: manager.connection.clone(),
+                        proxy: manager.proxy.clone(),
+                        app: app.clone(),
+                    };
+                    spawn_network_change_emitter(app.clone(), manager_static);
+                });
 
             Ok(())
         })
