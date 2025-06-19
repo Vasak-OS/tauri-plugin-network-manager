@@ -7,6 +7,10 @@ edition = "2021"
 rust-version = "1.77.2"
 exclude = ["/examples", "/dist-js", "/guest-js", "/node_modules"]
 links = "tauri-plugin-network-manager"
+readme = "README.md"
+repository = "https://github.com/Vasak-OS/tauri-plugin-network-manager"
+license = "GPL-3.0-or-later"
+keywords = ["tauri", "plugin", "network", "manager", "systemd"]
 
 [dependencies]
 tauri = "2"
