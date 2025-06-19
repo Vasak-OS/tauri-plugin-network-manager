@@ -2,7 +2,7 @@
 name = "tauri-plugin-network-manager"
 version = "0.1.0"
 authors = ["Joaquin (Pato) Decima <jdecima@vasak.net.ar>", "Vasak Group"]
-description = ""
+description = "A Tauri plugin to manage network connections using networkmanager and systemd-networkd."
 edition = "2021"
 rust-version = "1.77.2"
 exclude = ["/examples", "/dist-js", "/guest-js", "/node_modules"]

@@ -2,7 +2,7 @@
   "name": "@vasakgroup/plugin-network-manager",
   "version": "0.1.0",
   "author": "Joaquin (Pato) Decima <jdecima@vasak.net.ar>",
-  "description": "",
+  "description": "A Tauri plugin to manage network connections using networkmanager and systemd-networkd.",
   "type": "module",
   "types": "./dist-js/index.d.ts",
   "main": "./dist-js/index.cjs",
