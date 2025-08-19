@@ -582,7 +582,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         )?;
 
         let state = if enabled { "on" } else { "off" };
-        let output = Command::new("nmcli")
+        let _output = Command::new("nmcli")
             .arg("networking")
             .arg(state)
             .output()?;
@@ -650,7 +650,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
     /// Disconnect from the current WiFi network
     pub async fn disconnect_from_wifi(&self) -> Result<()> {
         // Obtener el estado actual de la red para identificar la conexión activa
-        let current_state = self.get_current_network_state()?;
+        let _current_state = self.get_current_network_state()?;
 
         // Crear un proxy para NetworkManager
         let nm_proxy = zbus::blocking::Proxy::new(
