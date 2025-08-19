@@ -301,16 +301,10 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
                         Ok(network_info)
                     }
-                    _ => {
-                        println!("No valid device path found");
-                        Ok(NetworkInfo::default())
-                    }
+                    _ => Ok(NetworkInfo::default()),
                 }
             }
-            _ => {
-                println!("No active connections found");
-                Ok(NetworkInfo::default())
-            }
+            _ => Ok(NetworkInfo::default()),
         }
     }
 
@@ -570,13 +564,11 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         )?;
 
         // Llamar al método AddAndActivateConnection
-        let result: (
+        let _result: (
             zbus::zvariant::OwnedObjectPath,
             zbus::zvariant::OwnedObjectPath,
         ) = nm_proxy.call("AddAndActivateConnection", &(connection_settings, "/", "/"))?;
 
-        // Si llegamos aquí, la conexión fue exitosa
-        println!("Conexión creada: {:?}, activada: {:?}", result.0, result.1);
         Ok(())
     }
 
@@ -595,15 +587,6 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             .arg(state)
             .output()?;
 
-        if !output.status.success() {
-            println!(
-                "nmcli networking {} failed: {}",
-                state,
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-
-        // Verifica el estado general
         let current_state: bool = nm_proxy.get_property("NetworkingEnabled")?;
         Ok(current_state)
     }
@@ -697,15 +680,10 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             _ => Vec::new(),
         };
 
-        // Si hay conexiones activas, desconectar la primera (normalmente solo hay una para WiFi)
         if !active_connections.is_empty() {
-            // Llamar al método DeactivateConnection para desconectar
             nm_proxy.call::<_, _, ()>("DeactivateConnection", &(active_connections[0].as_str()))?;
-            println!("Desconectado de la red: {}", current_state.ssid);
             Ok(())
         } else {
-            // No hay conexiones activas
-            println!("No hay conexiones activas para desconectar");
             Ok(())
         }
     }

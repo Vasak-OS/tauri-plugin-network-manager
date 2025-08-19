@@ -8,10 +8,7 @@ use std::result::Result;
 use std::sync::{Arc, RwLock};
 use tauri::{
     plugin::{Builder, TauriPlugin},
-    AppHandle,
-    Runtime,
-    Manager,
-    Emitter
+    AppHandle, Emitter, Manager, Runtime,
 };
 
 #[cfg(desktop)]
@@ -32,7 +29,6 @@ pub fn spawn_network_change_emitter<R: tauri::Runtime>(
     app: AppHandle<R>,
     network_manager: crate::models::VSKNetworkManager<'static, R>,
 ) {
-    println!("Iniciando escucha de cambios de red");
     let rx = match network_manager.listen_network_changes() {
         Ok(rx) => rx,
         Err(e) => {
@@ -42,10 +38,7 @@ pub fn spawn_network_change_emitter<R: tauri::Runtime>(
     };
 
     std::thread::spawn(move || {
-        println!("Escuchando cambios de red");
         for network_info in rx {
-            // Emitir evento a Tauri
-            println!("Cambio de red detectado: {:?}", network_info);
             let _ = app.emit("network-changed", &network_info);
         }
     });
@@ -146,11 +139,12 @@ pub fn init() -> TauriPlugin<tauri::Wry> {
                 .as_ref()
                 .map(|manager| {
                     // Clone the manager with a 'static lifetime
-                    let manager_static: crate::models::VSKNetworkManager<'static, tauri::Wry> = crate::models::VSKNetworkManager {
-                        connection: manager.connection.clone(),
-                        proxy: manager.proxy.clone(),
-                        app: app.clone(),
-                    };
+                    let manager_static: crate::models::VSKNetworkManager<'static, tauri::Wry> =
+                        crate::models::VSKNetworkManager {
+                            connection: manager.connection.clone(),
+                            proxy: manager.proxy.clone(),
+                            app: app.clone(),
+                        };
                     spawn_network_change_emitter(app.clone(), manager_static);
                 });
 
