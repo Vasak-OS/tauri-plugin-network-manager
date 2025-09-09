@@ -73,9 +73,9 @@ impl Default for NetworkInfo {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "kebab-case")]
 pub enum WiFiSecurityType {
-    #[default]
     None,
     Wep,
     WpaPsk,
