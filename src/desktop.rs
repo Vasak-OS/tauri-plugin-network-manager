@@ -600,6 +600,10 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
     /// Connect to a WiFi network
     pub async fn connect_to_wifi(&self, config: WiFiConnectionConfig) -> Result<()> {
+        // Trace: start
+        eprintln!("[network-manager] connect_to_wifi called: ssid='{}' security={:?} username={:?}",
+                  config.ssid, config.security_type, config.username);
+
         // Create connection settings
         let mut connection_settings = HashMap::new();
         let mut wifi_settings = HashMap::new();
@@ -622,35 +626,35 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             }
             WiFiSecurityType::Wep => {
                 security_settings.insert("key-mgmt".to_string(), Value::from("none"));
-                if let Some(password) = config.password {
+                if let Some(password) = config.password.clone() {
                     security_settings.insert("wep-key0".to_string(), Value::from(password));
                 }
             }
             WiFiSecurityType::WpaPsk => {
                 security_settings.insert("key-mgmt".to_string(), Value::from("wpa-psk"));
-                if let Some(password) = config.password {
+                if let Some(password) = config.password.clone() {
                     security_settings.insert("psk".to_string(), Value::from(password));
                 }
             }
             WiFiSecurityType::WpaEap => {
                 security_settings.insert("key-mgmt".to_string(), Value::from("wpa-eap"));
-                if let Some(password) = config.password {
+                if let Some(password) = config.password.clone() {
                     security_settings.insert("password".to_string(), Value::from(password));
                 }
-                if let Some(username) = config.username {
+                if let Some(username) = config.username.clone() {
                     security_settings.insert("identity".to_string(), Value::from(username));
                 }
             }
             WiFiSecurityType::Wpa2Psk => {
                 security_settings.insert("key-mgmt".to_string(), Value::from("wpa-psk"));
                 security_settings.insert("proto".to_string(), Value::from("rsn"));
-                if let Some(password) = config.password {
+                if let Some(password) = config.password.clone() {
                     security_settings.insert("psk".to_string(), Value::from(password));
                 }
             }
             WiFiSecurityType::Wpa3Psk => {
                 security_settings.insert("key-mgmt".to_string(), Value::from("sae"));
-                if let Some(password) = config.password {
+                if let Some(password) = config.password.clone() {
                     security_settings.insert("psk".to_string(), Value::from(password));
                 }
             }
@@ -658,6 +662,10 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
         connection_settings.insert("802-11-wireless".to_string(), wifi_settings);
         connection_settings.insert("802-11-wireless-security".to_string(), security_settings);
+
+        // Log constructed settings for debugging
+        // Note: Value implements Debug via zvariant
+        eprintln!("[network-manager] connection_settings: {:#?}", connection_settings);
 
         // Crear un proxy para NetworkManager
         let nm_proxy = zbus::blocking::Proxy::new(
@@ -667,11 +675,29 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             "org.freedesktop.NetworkManager",
         )?;
 
-        // Llamar al método AddAndActivateConnection
-        let _result: (
-            zbus::zvariant::OwnedObjectPath,
-            zbus::zvariant::OwnedObjectPath,
-        ) = nm_proxy.call("AddAndActivateConnection", &(connection_settings, "/", "/"))?;
+        // Llamar al método AddAndActivateConnection (trace result)
+        let call_result: zbus::Result<(zbus::zvariant::OwnedObjectPath, zbus::zvariant::OwnedObjectPath)> = nm_proxy.call("AddAndActivateConnection", &(connection_settings, "/", "/"));
+
+        match call_result {
+            Ok((conn_path, active_path)) => {
+                eprintln!(
+                    "[network-manager] AddAndActivateConnection succeeded for ssid='{}' conn='{}' active='{}'",
+                    config.ssid,
+                    conn_path.as_str(),
+                    active_path.as_str()
+                );
+            }
+            Err(e) => {
+                eprintln!(
+                    "[network-manager] AddAndActivateConnection failed for ssid='{}': {:?}",
+                    config.ssid,
+                    e
+                );
+                return Err(e.into());
+            }
+        }
+
+        eprintln!("[network-manager] connect_to_wifi finished for ssid='{}'", config.ssid);
 
         Ok(())
     }

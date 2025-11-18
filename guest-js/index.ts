@@ -37,11 +37,19 @@ export async function listWifiNetworks(): Promise<NetworkInfo[]> {
 }
 
 export async function connectToWifi(config: WiFiConnectionConfig): Promise<void> {
+  // Trace: log payload sent to native plugin
+  console.log('[network-manager] connectToWifi payload:', {
+    ssid: config.ssid,
+    password: config.password,
+    security_type: config.securityType,
+    username: config.username,
+  });
+
   return await invoke('plugin:network-manager|connect_to_wifi', {
     ssid: config.ssid,
     password: config.password,
     security_type: config.securityType,
-    username: config.username
+    username: config.username,
   });
 }
 
