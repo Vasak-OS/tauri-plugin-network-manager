@@ -38,8 +38,53 @@ pub fn spawn_network_change_emitter<R: tauri::Runtime>(
     };
 
     std::thread::spawn(move || {
-        for network_info in rx {
-            let _ = app.emit("network-changed", &network_info);
+        use std::time::{Duration, Instant};
+        use std::sync::mpsc::RecvTimeoutError;
+
+        let mut pending_event: Option<crate::models::NetworkInfo> = None;
+        let mut debounce_deadline: Option<Instant> = None;
+        let debounce_duration = Duration::from_millis(500);
+
+        loop {
+            if let Some(deadline) = debounce_deadline {
+                let now = Instant::now();
+                if now >= deadline {
+                    // Timeout reached, emit valid pending event
+                    if let Some(info) = pending_event.take() {
+                        let _ = app.emit("network-changed", &info);
+                    }
+                    debounce_deadline = None;
+                } else {
+                    // Wait for remaining time or new event
+                    let timeout = deadline - now;
+                    match rx.recv_timeout(timeout) {
+                        Ok(info) => {
+                            // New event during debounce window: update pending and extend deadline
+                            pending_event = Some(info);
+                            debounce_deadline = Some(Instant::now() + debounce_duration);
+                        }
+                        Err(RecvTimeoutError::Timeout) => {
+                            // Loop will handle emission
+                        }
+                        Err(RecvTimeoutError::Disconnected) => break,
+                    }
+                }
+            } else {
+                // No pending event, block until one arrives
+                match rx.recv() {
+                    Ok(info) => {
+                        pending_event = Some(info);
+                        // Emit immediately for first event? Or debounce?
+                        // Plan says "Debounce rapid state changes". So we should debounce.
+                        // But latency... 500ms latency on click ("Disconnect") might be annoying.
+                        // Ideally we emit first one immediately, then debounce subsequent?
+                        // "Trailing" vs "Leading".
+                        // Use trailing for stability (state is settling).
+                        debounce_deadline = Some(Instant::now() + debounce_duration);
+                    }
+                    Err(_) => break,
+                }
+            }
         }
     });
 }
