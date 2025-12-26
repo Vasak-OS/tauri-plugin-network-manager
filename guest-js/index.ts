@@ -56,3 +56,15 @@ export async function connectToWifi(config: WiFiConnectionConfig): Promise<void>
 export async function toggleNetwork(enabled: boolean): Promise<void> {
   return await invoke('plugin:network-manager|toggle_network_state', { enabled });
 }
+
+export async function getWirelessEnabled(): Promise<boolean> {
+  return await invoke('plugin:network-manager|get_wireless_enabled');
+}
+
+export async function setWirelessEnabled(enabled: boolean): Promise<void> {
+  return await invoke('plugin:network-manager|set_wireless_enabled', { enabled });
+}
+
+export async function isWirelessAvailable(): Promise<boolean> {
+  return await invoke('plugin:network-manager|is_wireless_available');
+}
