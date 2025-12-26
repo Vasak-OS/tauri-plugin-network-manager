@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-set-wireless-enabled"
+description = "Enables set_wireless_enabled"
+commands.allow = ["set_wireless_enabled"]

@@ -1,3 +1,3 @@
 [default]
 description = "Default permissions for the plugin"
-permissions = ["get_network_state", "list_wifi_networks", "connect_to_wifi", "disconnect_from_wifi", "get_saved_wifi_networks", "delete_wifi_connection", "toggle_network_state"]
+permissions = ["get_network_state", "list_wifi_networks", "connect_to_wifi", "disconnect_from_wifi", "get_saved_wifi_networks", "delete_wifi_connection", "toggle_network_state", "get_wireless_enabled", "set_wireless_enabled", "is_wireless_available"]

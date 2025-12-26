@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-is-wireless-available"
+description = "Enables is_wireless_available"
+commands.allow = ["is_wireless_available"]

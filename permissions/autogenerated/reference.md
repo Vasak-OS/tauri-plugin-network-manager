@@ -11,6 +11,9 @@ Default permissions for the plugin
 - `get_saved_wifi_networks`
 - `delete_wifi_connection`
 - `toggle_network_state`
+- `get_wireless_enabled`
+- `set_wireless_enabled`
+- `is_wireless_available`
 
 ## Permission Table
 
@@ -154,6 +157,32 @@ Denies the get_saved_wifi_networks command without any pre-configured scope.
 <tr>
 <td>
 
+`network-manager:allow-get-wireless-enabled`
+
+</td>
+<td>
+
+Enables get_wireless_enabled
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:allow-is-wireless-available`
+
+</td>
+<td>
+
+Enables is_wireless_available
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `network-manager:allow-list-wifi-networks`
 
 </td>
@@ -199,6 +228,19 @@ Enables the ping command without any pre-configured scope.
 <td>
 
 Denies the ping command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:allow-set-wireless-enabled`
+
+</td>
+<td>
+
+Enables set_wireless_enabled
 
 </td>
 </tr>

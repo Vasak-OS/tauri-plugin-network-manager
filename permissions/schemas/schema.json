@@ -355,6 +355,18 @@
           "markdownDescription": "Denies the get_saved_wifi_networks command without any pre-configured scope."
         },
         {
+          "description": "Enables get_wireless_enabled",
+          "type": "string",
+          "const": "allow-get-wireless-enabled",
+          "markdownDescription": "Enables get_wireless_enabled"
+        },
+        {
+          "description": "Enables is_wireless_available",
+          "type": "string",
+          "const": "allow-is-wireless-available",
+          "markdownDescription": "Enables is_wireless_available"
+        },
+        {
           "description": "Enables the list_wifi_networks command without any pre-configured scope.",
           "type": "string",
           "const": "allow-list-wifi-networks",
@@ -377,6 +389,12 @@
           "type": "string",
           "const": "deny-ping",
           "markdownDescription": "Denies the ping command without any pre-configured scope."
+        },
+        {
+          "description": "Enables set_wireless_enabled",
+          "type": "string",
+          "const": "allow-set-wireless-enabled",
+          "markdownDescription": "Enables set_wireless_enabled"
         },
         {
           "description": "Enables the toggle_network command without any pre-configured scope.",
@@ -403,10 +421,10 @@
           "markdownDescription": "Denies the toggle_network_state command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `get_network_state`\n- `list_wifi_networks`\n- `connect_to_wifi`\n- `disconnect_from_wifi`\n- `get_saved_wifi_networks`\n- `delete_wifi_connection`\n- `toggle_network_state`",
+          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `get_network_state`\n- `list_wifi_networks`\n- `connect_to_wifi`\n- `disconnect_from_wifi`\n- `get_saved_wifi_networks`\n- `delete_wifi_connection`\n- `toggle_network_state`\n- `get_wireless_enabled`\n- `set_wireless_enabled`\n- `is_wireless_available`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `get_network_state`\n- `list_wifi_networks`\n- `connect_to_wifi`\n- `disconnect_from_wifi`\n- `get_saved_wifi_networks`\n- `delete_wifi_connection`\n- `toggle_network_state`"
+          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `get_network_state`\n- `list_wifi_networks`\n- `connect_to_wifi`\n- `disconnect_from_wifi`\n- `get_saved_wifi_networks`\n- `delete_wifi_connection`\n- `toggle_network_state`\n- `get_wireless_enabled`\n- `set_wireless_enabled`\n- `is_wireless_available`"
         }
       ]
     }
