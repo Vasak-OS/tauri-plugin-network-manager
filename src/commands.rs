@@ -64,3 +64,21 @@ pub fn toggle_network_state(app_handle: AppHandle, enabled: bool) -> Result<()> 
     let _ = state.toggle_network_state(enabled);
     Ok(())
 }
+
+#[tauri::command]
+pub fn get_wireless_enabled(app_handle: AppHandle) -> Result<bool> {
+    let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
+    Ok(state.get_wireless_enabled()?)
+}
+
+#[tauri::command]
+pub fn set_wireless_enabled(app_handle: AppHandle, enabled: bool) -> Result<()> {
+    let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
+    Ok(state.set_wireless_enabled(enabled)?)
+}
+
+#[tauri::command]
+pub fn is_wireless_available(app_handle: AppHandle) -> Result<bool> {
+    let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
+    Ok(state.is_wireless_available()?)
+}

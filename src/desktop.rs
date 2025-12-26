@@ -721,6 +721,62 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         Ok(current_state)
     }
 
+    /// Get wireless enabled state
+    pub fn get_wireless_enabled(&self) -> Result<bool> {
+        let nm_proxy = zbus::blocking::Proxy::new(
+            &self.connection,
+            "org.freedesktop.NetworkManager",
+            "/org/freedesktop/NetworkManager",
+            "org.freedesktop.NetworkManager",
+        )?;
+        Ok(nm_proxy.get_property("WirelessEnabled")?)
+    }
+
+    /// Set wireless enabled state
+    pub fn set_wireless_enabled(&self, enabled: bool) -> Result<()> {
+        let nm_proxy = zbus::blocking::Proxy::new(
+            &self.connection,
+            "org.freedesktop.NetworkManager",
+            "/org/freedesktop/NetworkManager",
+            "org.freedesktop.NetworkManager",
+        )?;
+        nm_proxy.set_property("WirelessEnabled", enabled)?;
+        Ok(())
+    }
+
+    /// Check if wireless device is available
+    pub fn is_wireless_available(&self) -> Result<bool> {
+         // Get all devices
+        let devices_variant = self.proxy.get(
+            InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager"),
+            "Devices",
+        )?;
+
+        if let Some(zbus::zvariant::Value::Array(devices)) = devices_variant.downcast_ref() {
+            let device_values = devices.get();
+            for device in device_values {
+                if let zbus::zvariant::Value::ObjectPath(ref device_path) = device {
+                     let device_props = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
+                            .destination("org.freedesktop.NetworkManager")?
+                            .path(device_path)?
+                            .build()?;
+                    
+                    let device_type_variant = device_props.get(
+                        InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager.Device"),
+                        "DeviceType",
+                    )?;
+                    
+                    if let Some(zbus::zvariant::Value::U32(device_type)) = device_type_variant.downcast_ref() {
+                        if device_type == &2u32 { // 2 = WiFi
+                            return Ok(true);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(false)
+    }
+
     /// Listen for network changes
     pub fn listen_network_changes(&self) -> Result<mpsc::Receiver<NetworkInfo>> {
         let (tx, rx) = mpsc::channel();

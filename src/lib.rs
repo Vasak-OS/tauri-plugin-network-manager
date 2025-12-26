@@ -1,6 +1,7 @@
 use commands::{
     connect_to_wifi, delete_wifi_connection, disconnect_from_wifi, get_network_state,
     get_saved_wifi_networks, list_wifi_networks, toggle_network_state,
+    get_wireless_enabled, set_wireless_enabled, is_wireless_available
 };
 pub use models::{NetworkInfo, WiFiConnectionConfig, WiFiSecurityType};
 use serde::{Deserialize, Serialize};
@@ -143,6 +144,30 @@ impl<R: Runtime> NetworkManagerState<R> {
             _none => Err(NetworkError::NotInitialized),
         }
     }
+
+    pub fn get_wireless_enabled(&self) -> Result<bool, NetworkError> {
+        let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
+        match manager.as_ref() {
+            Some(manager) => manager.get_wireless_enabled().map_err(|e| NetworkError::from(e)),
+            _none => Err(NetworkError::NotInitialized),
+        }
+    }
+
+    pub fn set_wireless_enabled(&self, enabled: bool) -> Result<(), NetworkError> {
+        let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
+        match manager.as_ref() {
+             Some(manager) => manager.set_wireless_enabled(enabled).map_err(|e| NetworkError::from(e)),
+            _none => Err(NetworkError::NotInitialized),
+        }
+    }
+
+    pub fn is_wireless_available(&self) -> Result<bool, NetworkError> {
+        let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
+        match manager.as_ref() {
+            Some(manager) => manager.is_wireless_available().map_err(|e| NetworkError::from(e)),
+            _none => Err(NetworkError::NotInitialized),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -164,6 +189,9 @@ pub fn init() -> TauriPlugin<tauri::Wry> {
             get_saved_wifi_networks,
             delete_wifi_connection,
             toggle_network_state,
+            get_wireless_enabled,
+            set_wireless_enabled,
+            is_wireless_available,
         ])
         .setup(|app, _api| -> Result<(), Box<dyn std::error::Error>> {
             #[cfg(desktop)]
