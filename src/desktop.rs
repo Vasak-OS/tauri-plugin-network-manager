@@ -438,8 +438,8 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
     /// Connect to a WiFi network
     pub async fn connect_to_wifi(&self, config: WiFiConnectionConfig) -> Result<()> {
-        // Trace: start
-        eprintln!("[network-manager] connect_to_wifi called: ssid='{}' security={:?} username={:?}",
+        // Log connection attempt
+        log::debug!("connect_to_wifi called: ssid='{}' security={:?} username={:?}",
                   config.ssid, config.security_type, config.username);
 
         // Create connection settings
@@ -502,8 +502,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         connection_settings.insert("802-11-wireless-security".to_string(), security_settings);
 
         // Log constructed settings for debugging
-        // Note: Value implements Debug via zvariant
-        eprintln!("[network-manager] connection_settings: {:#?}", connection_settings);
+        log::trace!("connection_settings: {:#?}", connection_settings);
 
         // Crear un proxy para NetworkManager
         let nm_proxy = zbus::blocking::Proxy::new(
@@ -518,16 +517,16 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
         match call_result {
             Ok((conn_path, active_path)) => {
-                eprintln!(
-                    "[network-manager] AddAndActivateConnection succeeded for ssid='{}' conn='{}' active='{}'",
+                log::info!(
+                    "AddAndActivateConnection succeeded for ssid='{}' conn='{}' active='{}'",
                     config.ssid,
                     conn_path.as_str(),
                     active_path.as_str()
                 );
             }
             Err(e) => {
-                eprintln!(
-                    "[network-manager] AddAndActivateConnection failed for ssid='{}': {:?}",
+                log::error!(
+                    "AddAndActivateConnection failed for ssid='{}': {:?}",
                     config.ssid,
                     e
                 );
@@ -535,7 +534,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             }
         }
 
-        eprintln!("[network-manager] connect_to_wifi finished for ssid='{}'", config.ssid);
+        log::debug!("connect_to_wifi finished for ssid='{}'", config.ssid);
 
         Ok(())
     }
