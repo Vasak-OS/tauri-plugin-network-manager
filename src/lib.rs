@@ -18,6 +18,8 @@ pub mod desktop;
 mod commands;
 pub mod error;
 pub mod models;
+mod nm_constants;
+mod nm_helpers;
 
 pub use crate::error::{NetworkError, Result as NetworkResult};
 

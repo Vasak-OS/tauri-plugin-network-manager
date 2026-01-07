@@ -7,6 +7,8 @@ use zbus::zvariant::Value;
 
 use crate::error::Result;
 use crate::models::*;
+use crate::nm_constants::*;
+use crate::nm_helpers::NetworkManagerHelpers;
 
 impl<R: Runtime> VSKNetworkManager<'static, R> {
     /// Get WiFi icon based on signal strength
@@ -41,16 +43,6 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             proxy,
             app,
         })
-    }
-
-    fn has_internet_connectivity() -> bool {
-        Command::new("ping")
-            .arg("-c")
-            .arg("1")
-            .arg("8.8.8.8")
-            .output()
-            .map(|output| output.status.success())
-            .unwrap_or(false)
     }
 
     pub fn get_current_network_state(&self) -> Result<NetworkInfo> {
@@ -141,7 +133,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                             mac_address: "00:00:00:00:00:00".to_string(),
                             signal_strength: 0,
                             security_type: WiFiSecurityType::None,
-                            is_connected: is_connected && Self::has_internet_connectivity(),
+                            is_connected: is_connected && NetworkManagerHelpers::has_internet_connectivity(&self.proxy)?,
                         };
 
                         let hw_address_variant = device_properties_proxy.get(
@@ -236,88 +228,8 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                 network_info.icon =
                                     Self::get_wifi_icon(network_info.signal_strength);
 
-                                // Determine security type
-                                let flags_variant = ap_properties_proxy.get(
-                                    InterfaceName::from_static_str_unchecked(
-                                        "org.freedesktop.NetworkManager.AccessPoint",
-                                    ),
-                                    "Flags",
-                                )?;
-                                let wpa_flags_variant = ap_properties_proxy.get(
-                                    InterfaceName::from_static_str_unchecked(
-                                        "org.freedesktop.NetworkManager.AccessPoint",
-                                    ),
-                                    "WpaFlags",
-                                )?;
-                                let rsn_flags_variant = ap_properties_proxy.get(
-                                    InterfaceName::from_static_str_unchecked(
-                                        "org.freedesktop.NetworkManager.AccessPoint",
-                                    ),
-                                    "RsnFlags",
-                                )?;
-
-                                let flags = if let Some(zbus::zvariant::Value::U32(f)) = flags_variant.downcast_ref() { *f } else { 0 };
-                                let wpa = if let Some(zbus::zvariant::Value::U32(w)) = wpa_flags_variant.downcast_ref() { *w } else { 0 };
-                                let rsn = if let Some(zbus::zvariant::Value::U32(r)) = rsn_flags_variant.downcast_ref() { *r } else { 0 };
-
-                                // Obtener key-mgmt si está disponible
-                                let key_mgmt_variant = ap_properties_proxy.get(
-                                    InterfaceName::from_static_str_unchecked(
-                                        "org.freedesktop.NetworkManager.AccessPoint",
-                                    ),
-                                    "KeyMgmt",
-                                );
-                                let security_type = if let Ok(key_mgmt_variant) = key_mgmt_variant {
-                                    if let Some(zbus::zvariant::Value::Str(key_mgmt)) = key_mgmt_variant.downcast_ref() {
-                                        match key_mgmt.as_str() {
-                                            "none" => WiFiSecurityType::None,
-                                            "wpa-psk" => WiFiSecurityType::WpaPsk,
-                                            "wpa-eap" => WiFiSecurityType::WpaEap,
-                                            "sae" => WiFiSecurityType::Wpa3Psk,
-                                            _ => WiFiSecurityType::None,
-                                        }
-                                    } else {
-                                        // Fallback a flags
-                                        if flags & 0x1 != 0 {
-                                            WiFiSecurityType::None
-                                        } else if flags & 0x2 != 0 {
-                                            WiFiSecurityType::Wep
-                                        } else if wpa != 0 && rsn == 0 {
-                                            WiFiSecurityType::WpaPsk
-                                        } else if rsn != 0 {
-                                            if wpa != 0 {
-                                                WiFiSecurityType::Wpa2Psk
-                                            } else {
-                                                WiFiSecurityType::Wpa3Psk
-                                            }
-                                        } else {
-                                            WiFiSecurityType::None
-                                        }
-                                    }
-                                } else {
-                                    // Fallback a flags
-                                    if flags & 0x1 != 0 {
-                                        WiFiSecurityType::None
-                                    } else if flags & 0x2 != 0 {
-                                        WiFiSecurityType::Wep
-                                    } else if wpa != 0 && rsn == 0 {
-                                        WiFiSecurityType::WpaPsk
-                                    } else if rsn != 0 {
-                                        if wpa != 0 {
-                                            WiFiSecurityType::Wpa2Psk
-                                        } else {
-                                            WiFiSecurityType::Wpa3Psk
-                                        }
-                                    } else {
-                                        WiFiSecurityType::None
-                                    }
-                                };
-
-                                // Asignar el security_type calculado a network_info
-                                network_info.security_type = security_type;
-
-                                // Elimino el bloque duplicado que intenta crear y agregar network_info fuera del contexto correcto
-                                // Este bloque no pertenece aquí y causa errores de compilación
+                                // Determine security type using helper
+                                network_info.security_type = NetworkManagerHelpers::detect_security_type(&ap_properties_proxy)?;
                             }
                         } else {
                             // This is a wired connection
@@ -475,82 +387,8 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                             _ => 0,
                                         };
 
-                                        // Obtener flags
-                                        let flags_variant = ap_props.get(
-                                            InterfaceName::from_static_str_unchecked(
-                                                "org.freedesktop.NetworkManager.AccessPoint",
-                                            ),
-                                            "Flags",
-                                        )?;
-                                        let wpa_flags_variant = ap_props.get(
-                                            InterfaceName::from_static_str_unchecked(
-                                                "org.freedesktop.NetworkManager.AccessPoint",
-                                            ),
-                                            "WpaFlags",
-                                        )?;
-                                        let rsn_flags_variant = ap_props.get(
-                                            InterfaceName::from_static_str_unchecked(
-                                                "org.freedesktop.NetworkManager.AccessPoint",
-                                            ),
-                                            "RsnFlags",
-                                        )?;
-
-                                        let flags = if let Some(zbus::zvariant::Value::U32(f)) = flags_variant.downcast_ref() { *f } else { 0 };
-                                        let wpa = if let Some(zbus::zvariant::Value::U32(w)) = wpa_flags_variant.downcast_ref() { *w } else { 0 };
-                                        let rsn = if let Some(zbus::zvariant::Value::U32(r)) = rsn_flags_variant.downcast_ref() { *r } else { 0 };
-
-                                        // Obtener key-mgmt si está disponible
-                                        let key_mgmt_variant = ap_props.get(
-                                            InterfaceName::from_static_str_unchecked(
-                                                "org.freedesktop.NetworkManager.AccessPoint",
-                                            ),
-                                            "KeyMgmt",
-                                        );
-                                        let security_type = if let Ok(key_mgmt_variant) = key_mgmt_variant {
-                                            if let Some(zbus::zvariant::Value::Str(key_mgmt)) = key_mgmt_variant.downcast_ref() {
-                                                match key_mgmt.as_str() {
-                                                    "none" => WiFiSecurityType::None,
-                                                    "wpa-psk" => WiFiSecurityType::WpaPsk,
-                                                    "wpa-eap" => WiFiSecurityType::WpaEap,
-                                                    "sae" => WiFiSecurityType::Wpa3Psk,
-                                                    _ => WiFiSecurityType::None,
-                                                }
-                                            } else {
-                                                // Fallback a flags
-                                                if flags & 0x1 != 0 {
-                                                    WiFiSecurityType::None
-                                                } else if flags & 0x2 != 0 {
-                                                    WiFiSecurityType::Wep
-                                                } else if wpa != 0 && rsn == 0 {
-                                                    WiFiSecurityType::WpaPsk
-                                                } else if rsn != 0 {
-                                                    if wpa != 0 {
-                                                        WiFiSecurityType::Wpa2Psk
-                                                    } else {
-                                                        WiFiSecurityType::Wpa3Psk
-                                                    }
-                                                } else {
-                                                    WiFiSecurityType::None
-                                                }
-                                            }
-                                        } else {
-                                            // Fallback a flags
-                                            if flags & 0x1 != 0 {
-                                                WiFiSecurityType::None
-                                            } else if flags & 0x2 != 0 {
-                                                WiFiSecurityType::Wep
-                                            } else if wpa != 0 && rsn == 0 {
-                                                WiFiSecurityType::WpaPsk
-                                            } else if rsn != 0 {
-                                                if wpa != 0 {
-                                                    WiFiSecurityType::Wpa2Psk
-                                                } else {
-                                                    WiFiSecurityType::Wpa3Psk
-                                                }
-                                            } else {
-                                                WiFiSecurityType::None
-                                            }
-                                        };
+                                        // Determine security type using helper
+                                        let security_type = NetworkManagerHelpers::detect_security_type(&ap_props)?;
 
                                         let mac_address = match device_props.get(
                                             InterfaceName::from_static_str_unchecked(
