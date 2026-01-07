@@ -12,6 +12,15 @@ export interface NetworkInfo {
   is_connected: boolean;
 }
 
+export interface NetworkStats {
+  download_speed: number;
+  upload_speed: number;
+  total_downloaded: number;
+  total_uploaded: number;
+  connection_duration: number;
+  interface: string;
+}
+
 export enum WiFiSecurityType {
   NONE = 'none',
   WEP = 'wep',
@@ -67,4 +76,8 @@ export async function setWirelessEnabled(enabled: boolean): Promise<void> {
 
 export async function isWirelessAvailable(): Promise<boolean> {
   return await invoke('plugin:network-manager|is_wireless_available');
+}
+
+export async function getNetworkStats(): Promise<NetworkStats> {
+  return await invoke('plugin:network-manager|get_network_stats');
 }
