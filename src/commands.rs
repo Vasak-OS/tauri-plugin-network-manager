@@ -82,3 +82,17 @@ pub fn is_wireless_available(app_handle: AppHandle) -> Result<bool> {
     let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
     Ok(state.is_wireless_available()?)
 }
+
+/// Get network statistics for the active interface
+#[tauri::command]
+pub fn get_network_stats(app_handle: AppHandle) -> Result<crate::models::NetworkStats> {
+    let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
+    state.get_network_stats()
+}
+
+/// Get list of available network interfaces
+#[tauri::command]
+pub fn get_network_interfaces() -> Result<Vec<String>> {
+    crate::network_stats::get_network_interfaces()
+        .map_err(|e| NetworkError::from(e))
+}

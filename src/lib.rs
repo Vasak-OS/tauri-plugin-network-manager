@@ -1,7 +1,8 @@
 use commands::{
     connect_to_wifi, delete_wifi_connection, disconnect_from_wifi, get_network_state,
     get_saved_wifi_networks, list_wifi_networks, toggle_network_state,
-    get_wireless_enabled, set_wireless_enabled, is_wireless_available
+    get_wireless_enabled, set_wireless_enabled, is_wireless_available,
+    get_network_stats, get_network_interfaces
 };
 pub use models::{NetworkInfo, WiFiConnectionConfig, WiFiSecurityType};
 use serde::{Deserialize, Serialize};
@@ -20,12 +21,22 @@ pub mod error;
 pub mod models;
 mod nm_constants;
 mod nm_helpers;
+mod network_stats;
 
 pub use crate::error::{NetworkError, Result as NetworkResult};
 
-#[derive(Default)]
 pub struct NetworkManagerState<R: Runtime> {
     pub manager: Arc<RwLock<Option<crate::models::VSKNetworkManager<'static, R>>>>,
+    pub stats_tracker: Arc<RwLock<Option<crate::network_stats::NetworkStatsTracker>>>,
+}
+
+impl<R: Runtime> Default for NetworkManagerState<R> {
+    fn default() -> Self {
+        Self {
+            manager: Arc::new(RwLock::new(None)),
+            stats_tracker: Arc::new(RwLock::new(None)),
+        }
+    }
 }
 
 pub fn spawn_network_change_emitter<R: tauri::Runtime>(
@@ -96,6 +107,7 @@ impl<R: Runtime> NetworkManagerState<R> {
     pub fn new(manager: Option<crate::models::VSKNetworkManager<'static, R>>) -> Self {
         Self {
             manager: Arc::new(RwLock::new(manager)),
+            stats_tracker: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -170,6 +182,49 @@ impl<R: Runtime> NetworkManagerState<R> {
             _none => Err(NetworkError::NotInitialized),
         }
     }
+
+    pub fn get_network_stats(&self) -> Result<crate::models::NetworkStats, NetworkError> {
+        let mut tracker = self.stats_tracker.write().map_err(|_| NetworkError::LockError)?;
+        
+        // Initialize tracker if not already initialized
+        if tracker.is_none() {
+            // Get active interface from network manager
+            let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
+            if let Some(manager) = manager.as_ref() {
+                let network_state = manager.get_current_network_state()
+                    .map_err(|e| NetworkError::OperationError(e.to_string()))?;
+                
+                // Try to determine interface name from connection type
+                let interface = if network_state.connection_type == "WiFi" {
+                    // Try common WiFi interface names
+                    crate::network_stats::get_network_interfaces()
+                        .ok()
+                        .and_then(|interfaces| {
+                            interfaces.into_iter()
+                                .find(|i| i.starts_with("wl") || i.starts_with("wlan"))
+                        })
+                        .unwrap_or_else(|| "wlan0".to_string())
+                } else {
+                    // Try common ethernet interface names
+                    crate::network_stats::get_network_interfaces()
+                        .ok()
+                        .and_then(|interfaces| {
+                            interfaces.into_iter()
+                                .find(|i| i.starts_with("en") || i.starts_with("eth"))
+                        })
+                        .unwrap_or_else(|| "eth0".to_string())
+                };
+                
+                *tracker = crate::network_stats::NetworkStatsTracker::new(interface).ok();
+            }
+        }
+        
+        // Get stats from tracker
+        match tracker.as_mut() {
+            Some(t) => t.get_stats().map_err(|e| NetworkError::from(e)),
+            None => Err(NetworkError::OperationError("Stats tracker not initialized".to_string())),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -194,6 +249,8 @@ pub fn init() -> TauriPlugin<tauri::Wry> {
             get_wireless_enabled,
             set_wireless_enabled,
             is_wireless_available,
+            get_network_stats,
+            get_network_interfaces,
         ])
         .setup(|app, _api| -> Result<(), Box<dyn std::error::Error>> {
             #[cfg(desktop)]

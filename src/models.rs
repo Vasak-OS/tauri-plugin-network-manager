@@ -99,6 +99,34 @@ pub struct WiFiConnectionConfig {
     pub username: Option<String>,
 }
 
+/// Network statistics for bandwidth monitoring
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct NetworkStats {
+    /// Current download speed in bytes per second
+    pub download_speed: u64,
+    /// Current upload speed in bytes per second
+    pub upload_speed: u64,
+    /// Total bytes downloaded since connection
+    pub total_downloaded: u64,
+    /// Total bytes uploaded since connection
+    pub total_uploaded: u64,
+    /// Connection duration in seconds
+    pub connection_duration: u64,
+    /// Network interface name
+    pub interface: String,
+}
+
+/// Bandwidth data point for historical tracking
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct BandwidthPoint {
+    /// Timestamp in seconds since epoch
+    pub timestamp: u64,
+    /// Download speed in bytes per second
+    pub download_speed: u64,
+    /// Upload speed in bytes per second
+    pub upload_speed: u64,
+}
+
 // Removed duplicate init function
 
 #[derive(Clone, Debug)]
