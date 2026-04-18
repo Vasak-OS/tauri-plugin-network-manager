@@ -1504,7 +1504,28 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         let existing_vpn_settings = Self::string_map_from_section(&existing_settings, "vpn");
         let existing_vpn_secrets = Self::string_map_from_section(&existing_settings, "vpn-secrets");
 
-        let mut connection_section = HashMap::new();
+        // Start from the full current settings map to preserve unrelated sections
+        // (IPv4/IPv6, routes, DNS, permissions, proxy, etc.).
+        let mut settings: HashMap<String, HashMap<String, Value>> = HashMap::new();
+        for (section_name, section_value) in &existing_settings {
+            let raw_value = section_value.to_owned();
+            let dict = match <zbus::zvariant::Value<'_> as Clone>::clone(&raw_value)
+                .downcast::<HashMap<String, zbus::zvariant::OwnedValue>>()
+            {
+                Some(d) => d,
+                None => continue,
+            };
+
+            let mut section_map: HashMap<String, Value> = HashMap::new();
+            for (k, v) in dict {
+                section_map.insert(k, <zbus::zvariant::Value<'_> as Clone>::clone(&v));
+            }
+            settings.insert(section_name.clone(), section_map);
+        }
+
+        let connection_section = settings
+            .entry("connection".to_string())
+            .or_insert_with(HashMap::new);
         connection_section.insert(
             "id".to_string(),
             Value::from(config.id.clone().unwrap_or(existing_profile.id.clone())),
@@ -1523,7 +1544,9 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                 Self::service_type_from_vpn_type(&existing_profile.vpn_type).to_string()
             });
 
-        let mut vpn_section = HashMap::new();
+        let vpn_section = settings
+            .entry("vpn".to_string())
+            .or_insert_with(HashMap::new);
         vpn_section.insert("service-type".to_string(), Value::from(service_type));
 
         let mut merged_settings = existing_vpn_settings;
@@ -1565,16 +1588,16 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             }
         }
 
-        let mut vpn_secrets_section = HashMap::new();
-        for (k, v) in merged_secrets {
-            vpn_secrets_section.insert(k, Value::from(v));
-        }
-
-        let mut settings: HashMap<String, HashMap<String, Value>> = HashMap::new();
-        settings.insert("connection".to_string(), connection_section);
-        settings.insert("vpn".to_string(), vpn_section);
-        if !vpn_secrets_section.is_empty() {
-            settings.insert("vpn-secrets".to_string(), vpn_secrets_section);
+        if merged_secrets.is_empty() {
+            settings.remove("vpn-secrets");
+        } else {
+            let vpn_secrets_section = settings
+                .entry("vpn-secrets".to_string())
+                .or_insert_with(HashMap::new);
+            vpn_secrets_section.clear();
+            for (k, v) in merged_secrets {
+                vpn_secrets_section.insert(k, Value::from(v));
+            }
         }
 
         let conn_proxy = zbus::blocking::Proxy::new(
