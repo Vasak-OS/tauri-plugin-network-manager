@@ -6,7 +6,6 @@ use zbus::zvariant::Value;
 
 use crate::error::Result;
 use crate::models::*;
-use crate::nm_constants::*;
 use crate::nm_helpers::NetworkManagerHelpers;
 
 impl<R: Runtime> VSKNetworkManager<'static, R> {

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 use crate::error::Result;

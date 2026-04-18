@@ -67,26 +67,6 @@ impl NetworkManagerHelpers {
         })
     }
 
-    /// Parse SSID from D-Bus byte array
-    pub fn parse_ssid(ssid_variant: &zbus::zvariant::OwnedValue) -> String {
-        match ssid_variant.downcast_ref() {
-            Some(Value::Array(ssid_bytes)) => {
-                let bytes: Vec<u8> = ssid_bytes
-                    .iter()
-                    .filter_map(|v| {
-                        if let Value::U8(b) = v {
-                            Some(*b)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                String::from_utf8_lossy(&bytes).to_string()
-            }
-            _ => "Unknown".to_string(),
-        }
-    }
-
     /// Get connectivity state from NetworkManager
     pub fn has_internet_connectivity(
         proxy: &zbus::blocking::fdo::PropertiesProxy,

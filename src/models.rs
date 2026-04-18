@@ -1,48 +1,5 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Runtime};
-use zbus::{names::InterfaceName, zvariant::{OwnedValue, Value}};
-
-pub trait WirelessDeviceProxy {
-  fn get_access_points(&self) -> zbus::Result<Vec<zbus::zvariant::OwnedObjectPath>>;
-}
-
-pub trait DeviceProxy {
-  fn connection(&self) -> &zbus::blocking::Connection;
-  fn destination(&self) -> &str;
-  fn path(&self) -> &str;
-  fn device_type(&self) -> zbus::Result<u32>;
-  fn get_access_points(&self) -> zbus::Result<Vec<zbus::zvariant::OwnedObjectPath>> {
-      let properties_proxy = zbus::blocking::fdo::PropertiesProxy::builder(self.connection())
-          .destination(self.destination())?
-          .path(self.path())?
-          .interface("org.freedesktop.NetworkManager.Device.Wireless")?
-          .build()?;
-      
-      let aps_variant: OwnedValue = properties_proxy.get(InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager.Device.Wireless"), "AccessPoints")?.try_into()?;
-      
-      match aps_variant.downcast_ref() {
-          Some(Value::Array(arr)) => Ok(arr.into_iter()
-              .filter_map(|v| match v {
-                  zbus::zvariant::Value::ObjectPath(path) => Some(zbus::zvariant::OwnedObjectPath::from(path.to_owned())),
-                  _ => None,
-              })
-              .collect()),
-          _ => Err(zbus::Error::Failure("Failed to parse access points".into())),
-      }
-  }
-}
-
-pub trait AccessPointProxy {
-  fn ssid(&self) -> zbus::Result<Vec<u8>>;
-  fn strength(&self) -> zbus::Result<u8>;
-  fn security_type(&self) -> zbus::Result<WiFiSecurityType>;
-}
-
-pub trait ConnectionProxy {
-  fn add_connection(&self, settings: &HashMap<String, HashMap<String, String>>) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
-  fn call_add_connection(&self, settings: &HashMap<String, HashMap<String, String>>) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkInfo {
