@@ -56,6 +56,106 @@ pub struct WiFiConnectionConfig {
     pub username: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub enum VpnType {
+    OpenVpn,
+    WireGuard,
+    L2tp,
+    Pptp,
+    Sstp,
+    Ikev2,
+    Fortisslvpn,
+    OpenConnect,
+    Generic,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct VpnProfile {
+    pub id: String,
+    pub uuid: String,
+    pub vpn_type: VpnType,
+    pub interface_name: Option<String>,
+    pub autoconnect: bool,
+    pub editable: bool,
+    pub last_error: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum VpnConnectionState {
+    Disconnected,
+    Connecting,
+    Connected,
+    Disconnecting,
+    Failed,
+    Unknown,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct VpnStatus {
+    pub state: VpnConnectionState,
+    pub active_profile_id: Option<String>,
+    pub active_profile_uuid: Option<String>,
+    pub active_profile_name: Option<String>,
+    pub ip_address: Option<String>,
+    pub gateway: Option<String>,
+    pub since_unix_ms: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct VpnEventPayload {
+    pub status: VpnStatus,
+    pub profile: Option<VpnProfile>,
+    pub reason: Option<String>,
+}
+
+impl Default for VpnStatus {
+    fn default() -> Self {
+        Self {
+            state: VpnConnectionState::Disconnected,
+            active_profile_id: None,
+            active_profile_uuid: None,
+            active_profile_name: None,
+            ip_address: None,
+            gateway: None,
+            since_unix_ms: None,
+        }
+    }
+}
+
+#[derive(Deserialize, Clone)]
+pub struct VpnCreateConfig {
+    pub id: String,
+    pub vpn_type: VpnType,
+    pub autoconnect: Option<bool>,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub gateway: Option<String>,
+    pub ca_cert_path: Option<String>,
+    pub user_cert_path: Option<String>,
+    pub private_key_path: Option<String>,
+    pub private_key_password: Option<String>,
+    pub settings: Option<std::collections::HashMap<String, String>>,
+    pub secrets: Option<std::collections::HashMap<String, String>>,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct VpnUpdateConfig {
+    pub uuid: String,
+    pub id: Option<String>,
+    pub autoconnect: Option<bool>,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub gateway: Option<String>,
+    pub ca_cert_path: Option<String>,
+    pub user_cert_path: Option<String>,
+    pub private_key_path: Option<String>,
+    pub private_key_password: Option<String>,
+    pub settings: Option<std::collections::HashMap<String, String>>,
+    pub secrets: Option<std::collections::HashMap<String, String>>,
+}
+
 /// Network statistics for bandwidth monitoring
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NetworkStats {

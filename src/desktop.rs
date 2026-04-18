@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::mpsc;
 use tauri::{plugin::PluginApi, AppHandle, Runtime};
+use uuid::Uuid;
 use zbus::names::InterfaceName;
 use zbus::zvariant::Value;
 
@@ -9,6 +10,182 @@ use crate::models::*;
 use crate::nm_helpers::NetworkManagerHelpers;
 
 impl<R: Runtime> VSKNetworkManager<'static, R> {
+    fn vpn_type_from_service_type(service_type: &str) -> VpnType {
+        match service_type {
+            "org.freedesktop.NetworkManager.openvpn" => VpnType::OpenVpn,
+            "org.freedesktop.NetworkManager.wireguard" => VpnType::WireGuard,
+            "org.freedesktop.NetworkManager.l2tp" => VpnType::L2tp,
+            "org.freedesktop.NetworkManager.pptp" => VpnType::Pptp,
+            "org.freedesktop.NetworkManager.sstp" => VpnType::Sstp,
+            "org.freedesktop.NetworkManager.strongswan" => VpnType::Ikev2,
+            "org.freedesktop.NetworkManager.fortisslvpn" => VpnType::Fortisslvpn,
+            "org.freedesktop.NetworkManager.openconnect" => VpnType::OpenConnect,
+            _ => VpnType::Generic,
+        }
+    }
+
+    fn service_type_from_vpn_type(vpn_type: &VpnType) -> &'static str {
+        match vpn_type {
+            VpnType::OpenVpn => "org.freedesktop.NetworkManager.openvpn",
+            VpnType::WireGuard => "org.freedesktop.NetworkManager.wireguard",
+            VpnType::L2tp => "org.freedesktop.NetworkManager.l2tp",
+            VpnType::Pptp => "org.freedesktop.NetworkManager.pptp",
+            VpnType::Sstp => "org.freedesktop.NetworkManager.sstp",
+            VpnType::Ikev2 => "org.freedesktop.NetworkManager.strongswan",
+            VpnType::Fortisslvpn => "org.freedesktop.NetworkManager.fortisslvpn",
+            VpnType::OpenConnect => "org.freedesktop.NetworkManager.openconnect",
+            VpnType::Generic => "org.freedesktop.NetworkManager.vpnc",
+        }
+    }
+
+    fn vpn_state_from_active_state(state: u32) -> VpnConnectionState {
+        match state {
+            1 => VpnConnectionState::Connecting,
+            2 => VpnConnectionState::Connected,
+            3 => VpnConnectionState::Disconnecting,
+            4 => VpnConnectionState::Disconnected,
+            _ => VpnConnectionState::Unknown,
+        }
+    }
+
+    fn extract_string_from_dict(
+        dict: &HashMap<String, zbus::zvariant::OwnedValue>,
+        key: &str,
+    ) -> Option<String> {
+        let value = dict.get(key)?.to_owned();
+        <zbus::zvariant::Value<'_> as Clone>::clone(&value)
+            .downcast::<String>()
+    }
+
+    fn extract_bool_from_dict(
+        dict: &HashMap<String, zbus::zvariant::OwnedValue>,
+        key: &str,
+    ) -> Option<bool> {
+        let value = dict.get(key)?.to_owned();
+        <zbus::zvariant::Value<'_> as Clone>::clone(&value)
+            .downcast::<bool>()
+    }
+
+    fn string_map_from_section(
+        settings: &HashMap<String, zbus::zvariant::OwnedValue>,
+        section_name: &str,
+    ) -> HashMap<String, String> {
+        let mut out = HashMap::new();
+        let section = match settings.get(section_name) {
+            Some(v) => v.to_owned(),
+            None => return out,
+        };
+        let dict = match <zbus::zvariant::Value<'_> as Clone>::clone(&section)
+            .downcast::<HashMap<String, zbus::zvariant::OwnedValue>>()
+        {
+            Some(d) => d,
+            None => return out,
+        };
+
+        for (k, v) in dict {
+            let value = <zbus::zvariant::Value<'_> as Clone>::clone(&v);
+            if let Some(s) = value.downcast::<String>() {
+                out.insert(k, s);
+            }
+        }
+        out
+    }
+
+    fn list_connection_paths(&self) -> Result<Vec<zbus::zvariant::OwnedObjectPath>> {
+        let settings_proxy = zbus::blocking::Proxy::new(
+            &self.connection,
+            "org.freedesktop.NetworkManager",
+            "/org/freedesktop/NetworkManager/Settings",
+            "org.freedesktop.NetworkManager.Settings",
+        )?;
+
+        let connections: Vec<zbus::zvariant::OwnedObjectPath> =
+            settings_proxy.call("ListConnections", &())?;
+        Ok(connections)
+    }
+
+    fn get_connection_settings(
+        &self,
+        conn_path: &zbus::zvariant::OwnedObjectPath,
+    ) -> Result<HashMap<String, zbus::zvariant::OwnedValue>> {
+        let conn_proxy = zbus::blocking::Proxy::new(
+            &self.connection,
+            "org.freedesktop.NetworkManager",
+            conn_path.as_str(),
+            "org.freedesktop.NetworkManager.Settings.Connection",
+        )?;
+
+        let settings: HashMap<String, zbus::zvariant::OwnedValue> =
+            conn_proxy.call("GetSettings", &())?;
+        Ok(settings)
+    }
+
+    fn find_connection_path_by_uuid(
+        &self,
+        uuid: &str,
+    ) -> Result<zbus::zvariant::OwnedObjectPath> {
+        let connections = self.list_connection_paths()?;
+
+        for conn_path in connections {
+            let settings = self.get_connection_settings(&conn_path)?;
+            let connection_section = match settings.get("connection") {
+                Some(v) => v.to_owned(),
+                None => continue,
+            };
+            let dict = match <zbus::zvariant::Value<'_> as Clone>::clone(&connection_section)
+                .downcast::<HashMap<String, zbus::zvariant::OwnedValue>>()
+            {
+                Some(d) => d,
+                None => continue,
+            };
+
+            if let Some(conn_uuid) = Self::extract_string_from_dict(&dict, "uuid") {
+                if conn_uuid == uuid {
+                    return Ok(conn_path);
+                }
+            }
+        }
+
+        Err(crate::error::NetworkError::VpnProfileNotFound(uuid.to_string()))
+    }
+
+    fn vpn_profile_from_settings(
+        &self,
+        settings: &HashMap<String, zbus::zvariant::OwnedValue>,
+    ) -> Option<VpnProfile> {
+        let connection_section = settings.get("connection")?.to_owned();
+        let connection_dict = <zbus::zvariant::Value<'_> as Clone>::clone(&connection_section)
+            .downcast::<HashMap<String, zbus::zvariant::OwnedValue>>()?;
+
+        let conn_type = Self::extract_string_from_dict(&connection_dict, "type")?;
+        if conn_type != "vpn" {
+            return None;
+        }
+
+        let uuid = Self::extract_string_from_dict(&connection_dict, "uuid")?;
+        let id = Self::extract_string_from_dict(&connection_dict, "id")
+            .unwrap_or_else(|| uuid.clone());
+        let interface_name = Self::extract_string_from_dict(&connection_dict, "interface-name");
+        let autoconnect = Self::extract_bool_from_dict(&connection_dict, "autoconnect")
+            .unwrap_or(false);
+
+        let vpn_settings = Self::string_map_from_section(settings, "vpn");
+        let service_type = vpn_settings
+            .get("service-type")
+            .map(|s| s.as_str())
+            .unwrap_or("unknown");
+
+        Some(VpnProfile {
+            id,
+            uuid,
+            vpn_type: Self::vpn_type_from_service_type(service_type),
+            interface_name,
+            autoconnect,
+            editable: true,
+            last_error: None,
+        })
+    }
+
     /// Get WiFi icon based on signal strength
     fn get_wifi_icon(strength: u8) -> String {
         match strength {
@@ -983,6 +1160,485 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
         // No se encontró ninguna conexión con el SSID especificado
         Ok(false)
+    }
+
+    /// List saved VPN profiles from NetworkManager settings.
+    pub fn list_vpn_profiles(&self) -> Result<Vec<VpnProfile>> {
+        let connections = self.list_connection_paths()?;
+        let mut profiles = Vec::new();
+
+        for conn_path in connections {
+            let settings = self.get_connection_settings(&conn_path)?;
+            if let Some(profile) = self.vpn_profile_from_settings(&settings) {
+                profiles.push(profile);
+            }
+        }
+
+        profiles.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(profiles)
+    }
+
+    /// Get current VPN status from active connections.
+    pub fn get_vpn_status(&self) -> Result<VpnStatus> {
+        let active_connections_variant = self.proxy.get(
+            InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager"),
+            "ActiveConnections",
+        )?;
+
+        let mut status = VpnStatus::default();
+
+        if let Some(zbus::zvariant::Value::Array(arr)) = active_connections_variant.downcast_ref() {
+            for value in arr.iter() {
+                let active_path = match value {
+                    zbus::zvariant::Value::ObjectPath(path) => path,
+                    _ => continue,
+                };
+
+                let active_props = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
+                    .destination("org.freedesktop.NetworkManager")?
+                    .path(active_path)?
+                    .build()?;
+
+                let conn_type_variant = active_props.get(
+                    InterfaceName::from_static_str_unchecked(
+                        "org.freedesktop.NetworkManager.Connection.Active",
+                    ),
+                    "Type",
+                )?;
+
+                let conn_type = match conn_type_variant.downcast_ref() {
+                    Some(zbus::zvariant::Value::Str(v)) => v.to_string(),
+                    _ => continue,
+                };
+
+                if conn_type != "vpn" {
+                    continue;
+                }
+
+                let state_variant = active_props.get(
+                    InterfaceName::from_static_str_unchecked(
+                        "org.freedesktop.NetworkManager.Connection.Active",
+                    ),
+                    "State",
+                )?;
+                let state = match state_variant.downcast_ref() {
+                    Some(zbus::zvariant::Value::U32(v)) => *v,
+                    _ => 0,
+                };
+
+                let id_variant = active_props.get(
+                    InterfaceName::from_static_str_unchecked(
+                        "org.freedesktop.NetworkManager.Connection.Active",
+                    ),
+                    "Id",
+                )?;
+                let uuid_variant = active_props.get(
+                    InterfaceName::from_static_str_unchecked(
+                        "org.freedesktop.NetworkManager.Connection.Active",
+                    ),
+                    "Uuid",
+                )?;
+
+                status.state = Self::vpn_state_from_active_state(state);
+                status.active_profile_name = match id_variant.downcast_ref() {
+                    Some(zbus::zvariant::Value::Str(v)) => Some(v.to_string()),
+                    _ => None,
+                };
+                status.active_profile_id = status.active_profile_name.clone();
+                status.active_profile_uuid = match uuid_variant.downcast_ref() {
+                    Some(zbus::zvariant::Value::Str(v)) => Some(v.to_string()),
+                    _ => None,
+                };
+
+                let ip4_config_variant = active_props.get(
+                    InterfaceName::from_static_str_unchecked(
+                        "org.freedesktop.NetworkManager.Connection.Active",
+                    ),
+                    "Ip4Config",
+                )?;
+
+                if let Some(zbus::zvariant::Value::ObjectPath(ip4_path)) =
+                    ip4_config_variant.downcast_ref()
+                {
+                    if ip4_path.as_str() != "/" {
+                        let ip4_props = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
+                            .destination("org.freedesktop.NetworkManager")?
+                            .path(ip4_path)?
+                            .build()?;
+
+                        if let Ok(gateway_variant) = ip4_props.get(
+                            InterfaceName::from_static_str_unchecked(
+                                "org.freedesktop.NetworkManager.IP4Config",
+                            ),
+                            "Gateway",
+                        ) {
+                            status.gateway = match gateway_variant.downcast_ref() {
+                                Some(zbus::zvariant::Value::Str(v)) => Some(v.to_string()),
+                                _ => None,
+                            };
+                        }
+                    }
+                }
+
+                return Ok(status);
+            }
+        }
+
+        Ok(status)
+    }
+
+    /// Connect a VPN profile by UUID.
+    pub fn connect_vpn(&self, uuid: String) -> Result<()> {
+        let current_status = self.get_vpn_status()?;
+        if current_status.state == VpnConnectionState::Connected
+            && current_status.active_profile_uuid.as_deref() == Some(uuid.as_str())
+        {
+            return Err(crate::error::NetworkError::VpnAlreadyConnected(uuid));
+        }
+
+        let conn_path = self.find_connection_path_by_uuid(&uuid)?;
+
+        let nm_proxy = zbus::blocking::Proxy::new(
+            &self.connection,
+            "org.freedesktop.NetworkManager",
+            "/org/freedesktop/NetworkManager",
+            "org.freedesktop.NetworkManager",
+        )?;
+
+        let activate_result: zbus::Result<zbus::zvariant::OwnedObjectPath> =
+            nm_proxy.call("ActivateConnection", &(conn_path.as_str(), "/", "/"));
+
+        match activate_result {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                let msg = e.to_string().to_lowercase();
+                if msg.contains("secret") || msg.contains("authentication") {
+                    Err(crate::error::NetworkError::VpnAuthFailed(e.to_string()))
+                } else {
+                    Err(crate::error::NetworkError::VpnActivationFailed(e.to_string()))
+                }
+            }
+        }
+    }
+
+    /// Disconnect VPN by UUID or disconnect active VPN if UUID is not provided.
+    pub fn disconnect_vpn(&self, uuid: Option<String>) -> Result<()> {
+        let active_connections_variant = self.proxy.get(
+            InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager"),
+            "ActiveConnections",
+        )?;
+
+        let mut target_active_connection: Option<zbus::zvariant::OwnedObjectPath> = None;
+
+        if let Some(zbus::zvariant::Value::Array(arr)) = active_connections_variant.downcast_ref() {
+            for value in arr.iter() {
+                let active_path = match value {
+                    zbus::zvariant::Value::ObjectPath(path) => {
+                        zbus::zvariant::OwnedObjectPath::from(path.to_owned())
+                    }
+                    _ => continue,
+                };
+
+                let active_props = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
+                    .destination("org.freedesktop.NetworkManager")?
+                    .path(active_path.as_str())?
+                    .build()?;
+
+                let conn_type_variant = active_props.get(
+                    InterfaceName::from_static_str_unchecked(
+                        "org.freedesktop.NetworkManager.Connection.Active",
+                    ),
+                    "Type",
+                )?;
+                let conn_type = match conn_type_variant.downcast_ref() {
+                    Some(zbus::zvariant::Value::Str(v)) => v.to_string(),
+                    _ => continue,
+                };
+
+                if conn_type != "vpn" {
+                    continue;
+                }
+
+                if let Some(target_uuid) = uuid.as_deref() {
+                    let uuid_variant = active_props.get(
+                        InterfaceName::from_static_str_unchecked(
+                            "org.freedesktop.NetworkManager.Connection.Active",
+                        ),
+                        "Uuid",
+                    )?;
+                    let active_uuid = match uuid_variant.downcast_ref() {
+                        Some(zbus::zvariant::Value::Str(v)) => v.to_string(),
+                        _ => continue,
+                    };
+
+                    if active_uuid == target_uuid {
+                        target_active_connection = Some(active_path.clone());
+                        break;
+                    }
+                } else {
+                    target_active_connection = Some(active_path.clone());
+                    break;
+                }
+            }
+        }
+
+        let target_active_connection = match target_active_connection {
+            Some(path) => path,
+            None => {
+                if let Some(target_uuid) = uuid {
+                    return Err(crate::error::NetworkError::VpnProfileNotFound(target_uuid));
+                }
+                return Err(crate::error::NetworkError::VpnNotActive);
+            }
+        };
+
+        let nm_proxy = zbus::blocking::Proxy::new(
+            &self.connection,
+            "org.freedesktop.NetworkManager",
+            "/org/freedesktop/NetworkManager",
+            "org.freedesktop.NetworkManager",
+        )?;
+
+        nm_proxy.call::<_, _, ()>(
+            "DeactivateConnection",
+            &(target_active_connection.as_str(),),
+        )?;
+        Ok(())
+    }
+
+    /// Create a new VPN profile in NetworkManager settings.
+    pub fn create_vpn_profile(&self, config: VpnCreateConfig) -> Result<VpnProfile> {
+        if config.id.trim().is_empty() {
+            return Err(crate::error::NetworkError::VpnInvalidConfig(
+                "id is required".to_string(),
+            ));
+        }
+
+        let uuid = Uuid::new_v4().to_string();
+        let mut connection_section = HashMap::new();
+        connection_section.insert("id".to_string(), Value::from(config.id.clone()));
+        connection_section.insert("uuid".to_string(), Value::from(uuid.clone()));
+        connection_section.insert("type".to_string(), Value::from("vpn"));
+        connection_section.insert(
+            "autoconnect".to_string(),
+            Value::from(config.autoconnect.unwrap_or(false)),
+        );
+
+        let mut vpn_section = HashMap::new();
+        vpn_section.insert(
+            "service-type".to_string(),
+            Value::from(Self::service_type_from_vpn_type(&config.vpn_type)),
+        );
+
+        if let Some(username) = config.username {
+            vpn_section.insert("user-name".to_string(), Value::from(username));
+        }
+        if let Some(gateway) = config.gateway {
+            vpn_section.insert("remote".to_string(), Value::from(gateway));
+        }
+        if let Some(ca_cert_path) = config.ca_cert_path {
+            vpn_section.insert("ca".to_string(), Value::from(ca_cert_path));
+        }
+        if let Some(user_cert_path) = config.user_cert_path {
+            vpn_section.insert("cert".to_string(), Value::from(user_cert_path));
+        }
+        if let Some(private_key_path) = config.private_key_path {
+            vpn_section.insert("key".to_string(), Value::from(private_key_path));
+        }
+        if let Some(private_key_password) = config.private_key_password {
+            vpn_section.insert("key-password".to_string(), Value::from(private_key_password));
+        }
+        if let Some(custom_settings) = config.settings {
+            for (k, v) in custom_settings {
+                vpn_section.insert(k, Value::from(v));
+            }
+        }
+
+        let mut vpn_secrets_section = HashMap::new();
+        if let Some(password) = config.password {
+            vpn_secrets_section.insert("password".to_string(), Value::from(password));
+        }
+        if let Some(custom_secrets) = config.secrets {
+            for (k, v) in custom_secrets {
+                vpn_secrets_section.insert(k, Value::from(v));
+            }
+        }
+
+        let mut settings: HashMap<String, HashMap<String, Value>> = HashMap::new();
+        settings.insert("connection".to_string(), connection_section);
+        settings.insert("vpn".to_string(), vpn_section);
+        if !vpn_secrets_section.is_empty() {
+            settings.insert("vpn-secrets".to_string(), vpn_secrets_section);
+        }
+
+        let settings_proxy = zbus::blocking::Proxy::new(
+            &self.connection,
+            "org.freedesktop.NetworkManager",
+            "/org/freedesktop/NetworkManager/Settings",
+            "org.freedesktop.NetworkManager.Settings",
+        )?;
+
+        let _created_path: zbus::zvariant::OwnedObjectPath =
+            settings_proxy.call("AddConnection", &(settings,))?;
+
+        Ok(VpnProfile {
+            id: config.id,
+            uuid,
+            vpn_type: config.vpn_type,
+            interface_name: None,
+            autoconnect: config.autoconnect.unwrap_or(false),
+            editable: true,
+            last_error: None,
+        })
+    }
+
+    /// Update an existing VPN profile by UUID.
+    pub fn update_vpn_profile(&self, config: VpnUpdateConfig) -> Result<VpnProfile> {
+        let conn_path = self.find_connection_path_by_uuid(&config.uuid)?;
+        let existing_settings = self.get_connection_settings(&conn_path)?;
+
+        let existing_profile = self
+            .vpn_profile_from_settings(&existing_settings)
+            .ok_or_else(|| crate::error::NetworkError::VpnProfileNotFound(config.uuid.clone()))?;
+
+        let existing_vpn_settings = Self::string_map_from_section(&existing_settings, "vpn");
+        let existing_vpn_secrets = Self::string_map_from_section(&existing_settings, "vpn-secrets");
+
+        // Start from the full current settings map to preserve unrelated sections
+        // (IPv4/IPv6, routes, DNS, permissions, proxy, etc.).
+        let mut settings: HashMap<String, HashMap<String, Value>> = HashMap::new();
+        for (section_name, section_value) in &existing_settings {
+            let raw_value = section_value.to_owned();
+            let dict = match <zbus::zvariant::Value<'_> as Clone>::clone(&raw_value)
+                .downcast::<HashMap<String, zbus::zvariant::OwnedValue>>()
+            {
+                Some(d) => d,
+                None => continue,
+            };
+
+            let mut section_map: HashMap<String, Value> = HashMap::new();
+            for (k, v) in dict {
+                section_map.insert(k, <zbus::zvariant::Value<'_> as Clone>::clone(&v));
+            }
+            settings.insert(section_name.clone(), section_map);
+        }
+
+        let connection_section = settings
+            .entry("connection".to_string())
+            .or_insert_with(HashMap::new);
+        connection_section.insert(
+            "id".to_string(),
+            Value::from(config.id.clone().unwrap_or(existing_profile.id.clone())),
+        );
+        connection_section.insert("uuid".to_string(), Value::from(config.uuid.clone()));
+        connection_section.insert("type".to_string(), Value::from("vpn"));
+        connection_section.insert(
+            "autoconnect".to_string(),
+            Value::from(config.autoconnect.unwrap_or(existing_profile.autoconnect)),
+        );
+
+        let service_type = existing_vpn_settings
+            .get("service-type")
+            .cloned()
+            .unwrap_or_else(|| {
+                Self::service_type_from_vpn_type(&existing_profile.vpn_type).to_string()
+            });
+
+        let vpn_section = settings
+            .entry("vpn".to_string())
+            .or_insert_with(HashMap::new);
+        vpn_section.insert("service-type".to_string(), Value::from(service_type));
+
+        let mut merged_settings = existing_vpn_settings;
+        if let Some(username) = config.username {
+            merged_settings.insert("user-name".to_string(), username);
+        }
+        if let Some(gateway) = config.gateway {
+            merged_settings.insert("remote".to_string(), gateway);
+        }
+        if let Some(ca_cert_path) = config.ca_cert_path {
+            merged_settings.insert("ca".to_string(), ca_cert_path);
+        }
+        if let Some(user_cert_path) = config.user_cert_path {
+            merged_settings.insert("cert".to_string(), user_cert_path);
+        }
+        if let Some(private_key_path) = config.private_key_path {
+            merged_settings.insert("key".to_string(), private_key_path);
+        }
+        if let Some(private_key_password) = config.private_key_password {
+            merged_settings.insert("key-password".to_string(), private_key_password);
+        }
+        if let Some(custom_settings) = config.settings {
+            for (k, v) in custom_settings {
+                merged_settings.insert(k, v);
+            }
+        }
+
+        for (k, v) in merged_settings {
+            vpn_section.insert(k, Value::from(v));
+        }
+
+        let mut merged_secrets = existing_vpn_secrets;
+        if let Some(password) = config.password {
+            merged_secrets.insert("password".to_string(), password);
+        }
+        if let Some(custom_secrets) = config.secrets {
+            for (k, v) in custom_secrets {
+                merged_secrets.insert(k, v);
+            }
+        }
+
+        if merged_secrets.is_empty() {
+            settings.remove("vpn-secrets");
+        } else {
+            let vpn_secrets_section = settings
+                .entry("vpn-secrets".to_string())
+                .or_insert_with(HashMap::new);
+            vpn_secrets_section.clear();
+            for (k, v) in merged_secrets {
+                vpn_secrets_section.insert(k, Value::from(v));
+            }
+        }
+
+        let conn_proxy = zbus::blocking::Proxy::new(
+            &self.connection,
+            "org.freedesktop.NetworkManager",
+            conn_path.as_str(),
+            "org.freedesktop.NetworkManager.Settings.Connection",
+        )?;
+        conn_proxy.call::<_, _, ()>("Update", &(settings,))?;
+
+        let updated_settings = self.get_connection_settings(&conn_path)?;
+        self.vpn_profile_from_settings(&updated_settings)
+            .ok_or_else(|| crate::error::NetworkError::VpnProfileNotFound(config.uuid))
+    }
+
+    /// Delete a VPN profile by UUID.
+    pub fn delete_vpn_profile(&self, uuid: String) -> Result<()> {
+        let conn_path = self.find_connection_path_by_uuid(&uuid)?;
+
+        let conn_proxy = zbus::blocking::Proxy::new(
+            &self.connection,
+            "org.freedesktop.NetworkManager",
+            conn_path.as_str(),
+            "org.freedesktop.NetworkManager.Settings.Connection",
+        )?;
+
+        conn_proxy.call::<_, _, ()>("Delete", &())?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vpn_state_deactivated_maps_to_disconnected() {
+        assert_eq!(
+            VSKNetworkManager::<tauri::Wry>::vpn_state_from_active_state(4),
+            VpnConnectionState::Disconnected
+        );
     }
 }
 

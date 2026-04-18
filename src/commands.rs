@@ -1,7 +1,9 @@
 use tauri::{AppHandle, Manager};
 
 use crate::{NetworkError, NetworkManagerState};
-use crate::models::{NetworkInfo, WiFiConnectionConfig};
+use crate::models::{
+    NetworkInfo, WiFiConnectionConfig, VpnCreateConfig, VpnProfile, VpnStatus, VpnUpdateConfig,
+};
 use crate::error::Result;
 
 /// Get the current network state
@@ -112,4 +114,53 @@ pub fn get_network_stats(app_handle: AppHandle) -> Result<crate::models::Network
 pub fn get_network_interfaces() -> Result<Vec<String>> {
     crate::network_stats::get_network_interfaces()
         .map_err(|e| NetworkError::from(e))
+}
+
+/// List saved VPN profiles
+#[tauri::command]
+pub fn list_vpn_profiles(app_handle: AppHandle) -> Result<Vec<VpnProfile>> {
+    let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
+    state.list_vpn_profiles()
+}
+
+/// Get current VPN status
+#[tauri::command]
+pub fn get_vpn_status(app_handle: AppHandle) -> Result<VpnStatus> {
+    let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
+    state.get_vpn_status()
+}
+
+/// Connect VPN by profile UUID
+#[tauri::command]
+pub fn connect_vpn(app_handle: AppHandle, uuid: String) -> Result<()> {
+    let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
+    state.connect_vpn(uuid)
+}
+
+/// Disconnect active VPN or specific profile UUID if provided
+#[tauri::command]
+pub fn disconnect_vpn(app_handle: AppHandle, uuid: Option<String>) -> Result<()> {
+    let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
+    state.disconnect_vpn(uuid)
+}
+
+/// Create a VPN profile
+#[tauri::command]
+pub fn create_vpn_profile(app_handle: AppHandle, config: VpnCreateConfig) -> Result<VpnProfile> {
+    let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
+    state.create_vpn_profile(config)
+}
+
+/// Update a VPN profile
+#[tauri::command]
+pub fn update_vpn_profile(app_handle: AppHandle, config: VpnUpdateConfig) -> Result<VpnProfile> {
+    let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
+    state.update_vpn_profile(config)
+}
+
+/// Delete VPN profile by UUID
+#[tauri::command]
+pub fn delete_vpn_profile(app_handle: AppHandle, uuid: String) -> Result<()> {
+    let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
+    state.delete_vpn_profile(uuid)
 }

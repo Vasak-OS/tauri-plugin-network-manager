@@ -307,6 +307,42 @@
           "markdownDescription": "Denies the connect_to_wifi command without any pre-configured scope."
         },
         {
+          "description": "Enables the connect_vpn command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-connect-vpn",
+          "markdownDescription": "Enables the connect_vpn command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the connect_vpn command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-connect-vpn",
+          "markdownDescription": "Denies the connect_vpn command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the create_vpn_profile command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-create-vpn-profile",
+          "markdownDescription": "Enables the create_vpn_profile command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the create_vpn_profile command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-create-vpn-profile",
+          "markdownDescription": "Denies the create_vpn_profile command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the delete_vpn_profile command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-delete-vpn-profile",
+          "markdownDescription": "Enables the delete_vpn_profile command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the delete_vpn_profile command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-delete-vpn-profile",
+          "markdownDescription": "Denies the delete_vpn_profile command without any pre-configured scope."
+        },
+        {
           "description": "Enables the delete_wifi_connection command without any pre-configured scope.",
           "type": "string",
           "const": "allow-delete-wifi-connection",
@@ -329,6 +365,18 @@
           "type": "string",
           "const": "deny-disconnect-from-wifi",
           "markdownDescription": "Denies the disconnect_from_wifi command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the disconnect_vpn command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-disconnect-vpn",
+          "markdownDescription": "Enables the disconnect_vpn command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the disconnect_vpn command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-disconnect-vpn",
+          "markdownDescription": "Denies the disconnect_vpn command without any pre-configured scope."
         },
         {
           "description": "Enables the get_network_state command without any pre-configured scope.",
@@ -355,6 +403,18 @@
           "markdownDescription": "Denies the get_saved_wifi_networks command without any pre-configured scope."
         },
         {
+          "description": "Enables the get_vpn_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-vpn-status",
+          "markdownDescription": "Enables the get_vpn_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_vpn_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-vpn-status",
+          "markdownDescription": "Denies the get_vpn_status command without any pre-configured scope."
+        },
+        {
           "description": "Enables get_wireless_enabled",
           "type": "string",
           "const": "allow-get-wireless-enabled",
@@ -365,6 +425,18 @@
           "type": "string",
           "const": "allow-is-wireless-available",
           "markdownDescription": "Enables is_wireless_available"
+        },
+        {
+          "description": "Enables the list_vpn_profiles command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-vpn-profiles",
+          "markdownDescription": "Enables the list_vpn_profiles command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_vpn_profiles command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-vpn-profiles",
+          "markdownDescription": "Denies the list_vpn_profiles command without any pre-configured scope."
         },
         {
           "description": "Enables the list_wifi_networks command without any pre-configured scope.",
@@ -433,10 +505,28 @@
           "markdownDescription": "Denies the toggle_network_state command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `get_network_state`\n- `list_wifi_networks`\n- `rescan_wifi`\n- `connect_to_wifi`\n- `disconnect_from_wifi`\n- `get_saved_wifi_networks`\n- `delete_wifi_connection`\n- `toggle_network_state`\n- `get_wireless_enabled`\n- `set_wireless_enabled`\n- `is_wireless_available`",
+          "description": "Enables the update_vpn_profile command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-update-vpn-profile",
+          "markdownDescription": "Enables the update_vpn_profile command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_vpn_profile command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-update-vpn-profile",
+          "markdownDescription": "Denies the update_vpn_profile command without any pre-configured scope."
+        },
+        {
+          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `get_network_state`\n- `list_wifi_networks`\n- `rescan_wifi`\n- `connect_to_wifi`\n- `disconnect_from_wifi`\n- `get_saved_wifi_networks`\n- `delete_wifi_connection`\n- `toggle_network_state`\n- `get_wireless_enabled`\n- `set_wireless_enabled`\n- `is_wireless_available`\n- `list_vpn_profiles`\n- `get_vpn_status`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `get_network_state`\n- `list_wifi_networks`\n- `rescan_wifi`\n- `connect_to_wifi`\n- `disconnect_from_wifi`\n- `get_saved_wifi_networks`\n- `delete_wifi_connection`\n- `toggle_network_state`\n- `get_wireless_enabled`\n- `set_wireless_enabled`\n- `is_wireless_available`"
+          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `get_network_state`\n- `list_wifi_networks`\n- `rescan_wifi`\n- `connect_to_wifi`\n- `disconnect_from_wifi`\n- `get_saved_wifi_networks`\n- `delete_wifi_connection`\n- `toggle_network_state`\n- `get_wireless_enabled`\n- `set_wireless_enabled`\n- `is_wireless_available`\n- `list_vpn_profiles`\n- `get_vpn_status`"
+        },
+        {
+          "description": "Permission set for mutating VPN connections and profiles.\n#### This permission set includes:\n\n- `connect_vpn`\n- `disconnect_vpn`\n- `create_vpn_profile`\n- `update_vpn_profile`\n- `delete_vpn_profile`",
+          "type": "string",
+          "const": "vpn_management",
+          "markdownDescription": "Permission set for mutating VPN connections and profiles.\n#### This permission set includes:\n\n- `connect_vpn`\n- `disconnect_vpn`\n- `create_vpn_profile`\n- `update_vpn_profile`\n- `delete_vpn_profile`"
         }
       ]
     }

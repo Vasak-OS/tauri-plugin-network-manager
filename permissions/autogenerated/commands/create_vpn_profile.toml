@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-create-vpn-profile"
+description = "Enables the create_vpn_profile command without any pre-configured scope."
+commands.allow = ["create_vpn_profile"]
+
+[[permission]]
+identifier = "deny-create-vpn-profile"
+description = "Denies the create_vpn_profile command without any pre-configured scope."
+commands.deny = ["create_vpn_profile"]

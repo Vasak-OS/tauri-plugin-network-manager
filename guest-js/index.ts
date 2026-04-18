@@ -8,6 +8,13 @@ export enum NetworkManagerErrorCode {
   CONNECTION_FAILED = 'CONNECTION_FAILED',
   NETWORK_NOT_FOUND = 'NETWORK_NOT_FOUND',
   OPERATION_FAILED = 'OPERATION_FAILED',
+  VPN_PROFILE_NOT_FOUND = 'VPN_PROFILE_NOT_FOUND',
+  VPN_ALREADY_CONNECTED = 'VPN_ALREADY_CONNECTED',
+  VPN_AUTH_FAILED = 'VPN_AUTH_FAILED',
+  VPN_INVALID_CONFIG = 'VPN_INVALID_CONFIG',
+  VPN_ACTIVATION_FAILED = 'VPN_ACTIVATION_FAILED',
+  VPN_PLUGIN_UNAVAILABLE = 'VPN_PLUGIN_UNAVAILABLE',
+  VPN_NOT_ACTIVE = 'VPN_NOT_ACTIVE',
   UNKNOWN = 'UNKNOWN',
 }
 
@@ -72,6 +79,81 @@ export interface ListWifiNetworksOptions {
   ttlMs?: number;
 }
 
+export type VpnType =
+  | 'open-vpn'
+  | 'wire-guard'
+  | 'l2tp'
+  | 'pptp'
+  | 'sstp'
+  | 'ikev2'
+  | 'fortisslvpn'
+  | 'open-connect'
+  | 'generic';
+
+export type VpnConnectionState =
+  | 'disconnected'
+  | 'connecting'
+  | 'connected'
+  | 'disconnecting'
+  | 'failed'
+  | 'unknown';
+
+export interface VpnProfile {
+  id: string;
+  uuid: string;
+  vpn_type: VpnType;
+  interface_name?: string;
+  autoconnect: boolean;
+  editable: boolean;
+  last_error?: string;
+}
+
+export interface VpnStatus {
+  state: VpnConnectionState;
+  active_profile_id?: string;
+  active_profile_uuid?: string;
+  active_profile_name?: string;
+  ip_address?: string;
+  gateway?: string;
+  since_unix_ms?: number;
+}
+
+export interface VpnEventPayload {
+  status: VpnStatus;
+  profile?: VpnProfile;
+  reason?: string;
+}
+
+export interface VpnCreateInput {
+  id: string;
+  vpn_type: VpnType;
+  autoconnect?: boolean;
+  username?: string;
+  password?: string;
+  gateway?: string;
+  ca_cert_path?: string;
+  user_cert_path?: string;
+  private_key_path?: string;
+  private_key_password?: string;
+  settings?: Record<string, string>;
+  secrets?: Record<string, string>;
+}
+
+export interface VpnUpdateInput {
+  uuid: string;
+  id?: string;
+  autoconnect?: boolean;
+  username?: string;
+  password?: string;
+  gateway?: string;
+  ca_cert_path?: string;
+  user_cert_path?: string;
+  private_key_path?: string;
+  private_key_password?: string;
+  settings?: Record<string, string>;
+  secrets?: Record<string, string>;
+}
+
 function normalizeInvokeError(error: unknown): NetworkManagerError {
   const rawMessage =
     typeof error === 'string'
@@ -97,6 +179,20 @@ function normalizeInvokeError(error: unknown): NetworkManagerError {
     code = NetworkManagerErrorCode.NETWORK_NOT_FOUND;
   } else if (message.includes('operation error') || message.includes('network operation failed')) {
     code = NetworkManagerErrorCode.OPERATION_FAILED;
+  } else if (message.includes('vpn profile not found')) {
+    code = NetworkManagerErrorCode.VPN_PROFILE_NOT_FOUND;
+  } else if (message.includes('vpn profile already connected')) {
+    code = NetworkManagerErrorCode.VPN_ALREADY_CONNECTED;
+  } else if (message.includes('vpn authentication failed')) {
+    code = NetworkManagerErrorCode.VPN_AUTH_FAILED;
+  } else if (message.includes('vpn invalid config')) {
+    code = NetworkManagerErrorCode.VPN_INVALID_CONFIG;
+  } else if (message.includes('vpn activation failed')) {
+    code = NetworkManagerErrorCode.VPN_ACTIVATION_FAILED;
+  } else if (message.includes('vpn plugin unavailable')) {
+    code = NetworkManagerErrorCode.VPN_PLUGIN_UNAVAILABLE;
+  } else if (message.includes('no active vpn connection')) {
+    code = NetworkManagerErrorCode.VPN_NOT_ACTIVE;
   }
 
   const typedError = new Error(rawMessage) as NetworkManagerError;
@@ -199,4 +295,42 @@ export async function getNetworkStats(): Promise<NetworkStats> {
 
 export async function getNetworkInterfaces(): Promise<string[]> {
   return await invokeWithTypedError<string[]>('plugin:network-manager|get_network_interfaces');
+}
+
+export async function listVpnProfiles(): Promise<VpnProfile[]> {
+  return await invokeWithTypedError<VpnProfile[]>('plugin:network-manager|list_vpn_profiles');
+}
+
+export async function getVpnStatus(): Promise<VpnStatus> {
+  return await invokeWithTypedError<VpnStatus>('plugin:network-manager|get_vpn_status');
+}
+
+export async function connectVpn(uuid: string): Promise<void> {
+  return await invokeWithTypedError<void>('plugin:network-manager|connect_vpn', {
+    uuid,
+  });
+}
+
+export async function disconnectVpn(uuid?: string): Promise<void> {
+  return await invokeWithTypedError<void>('plugin:network-manager|disconnect_vpn', {
+    uuid,
+  });
+}
+
+export async function createVpnProfile(config: VpnCreateInput): Promise<VpnProfile> {
+  return await invokeWithTypedError<VpnProfile>('plugin:network-manager|create_vpn_profile', {
+    config,
+  });
+}
+
+export async function updateVpnProfile(config: VpnUpdateInput): Promise<VpnProfile> {
+  return await invokeWithTypedError<VpnProfile>('plugin:network-manager|update_vpn_profile', {
+    config,
+  });
+}
+
+export async function deleteVpnProfile(uuid: string): Promise<void> {
+  return await invokeWithTypedError<void>('plugin:network-manager|delete_vpn_profile', {
+    uuid,
+  });
 }

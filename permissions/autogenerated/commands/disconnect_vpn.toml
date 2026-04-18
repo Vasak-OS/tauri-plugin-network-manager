@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-disconnect-vpn"
+description = "Enables the disconnect_vpn command without any pre-configured scope."
+commands.allow = ["disconnect_vpn"]
+
+[[permission]]
+identifier = "deny-disconnect-vpn"
+description = "Denies the disconnect_vpn command without any pre-configured scope."
+commands.deny = ["disconnect_vpn"]

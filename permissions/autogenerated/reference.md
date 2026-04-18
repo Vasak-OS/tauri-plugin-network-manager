@@ -15,6 +15,8 @@ Default permissions for the plugin
 - `get_wireless_enabled`
 - `set_wireless_enabled`
 - `is_wireless_available`
+- `list_vpn_profiles`
+- `get_vpn_status`
 
 ## Permission Table
 
@@ -47,6 +49,84 @@ Enables the connect_to_wifi command without any pre-configured scope.
 <td>
 
 Denies the connect_to_wifi command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:allow-connect-vpn`
+
+</td>
+<td>
+
+Enables the connect_vpn command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:deny-connect-vpn`
+
+</td>
+<td>
+
+Denies the connect_vpn command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:allow-create-vpn-profile`
+
+</td>
+<td>
+
+Enables the create_vpn_profile command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:deny-create-vpn-profile`
+
+</td>
+<td>
+
+Denies the create_vpn_profile command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:allow-delete-vpn-profile`
+
+</td>
+<td>
+
+Enables the delete_vpn_profile command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:deny-delete-vpn-profile`
+
+</td>
+<td>
+
+Denies the delete_vpn_profile command without any pre-configured scope.
 
 </td>
 </tr>
@@ -106,6 +186,32 @@ Denies the disconnect_from_wifi command without any pre-configured scope.
 <tr>
 <td>
 
+`network-manager:allow-disconnect-vpn`
+
+</td>
+<td>
+
+Enables the disconnect_vpn command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:deny-disconnect-vpn`
+
+</td>
+<td>
+
+Denies the disconnect_vpn command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `network-manager:allow-get-network-state`
 
 </td>
@@ -158,6 +264,32 @@ Denies the get_saved_wifi_networks command without any pre-configured scope.
 <tr>
 <td>
 
+`network-manager:allow-get-vpn-status`
+
+</td>
+<td>
+
+Enables the get_vpn_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:deny-get-vpn-status`
+
+</td>
+<td>
+
+Denies the get_vpn_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `network-manager:allow-get-wireless-enabled`
 
 </td>
@@ -177,6 +309,32 @@ Enables get_wireless_enabled
 <td>
 
 Enables is_wireless_available
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:allow-list-vpn-profiles`
+
+</td>
+<td>
+
+Enables the list_vpn_profiles command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:deny-list-vpn-profiles`
+
+</td>
+<td>
+
+Denies the list_vpn_profiles command without any pre-configured scope.
 
 </td>
 </tr>
@@ -320,6 +478,45 @@ Enables the toggle_network_state command without any pre-configured scope.
 <td>
 
 Denies the toggle_network_state command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:allow-update-vpn-profile`
+
+</td>
+<td>
+
+Enables the update_vpn_profile command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:deny-update-vpn-profile`
+
+</td>
+<td>
+
+Denies the update_vpn_profile command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:vpn_management`
+
+</td>
+<td>
+
+Permission set for mutating VPN connections and profiles.
 
 </td>
 </tr>
