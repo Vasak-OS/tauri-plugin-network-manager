@@ -6,6 +6,7 @@ Default permissions for the plugin
 
 - `get_network_state`
 - `list_wifi_networks`
+- `rescan_wifi`
 - `connect_to_wifi`
 - `disconnect_from_wifi`
 - `get_saved_wifi_networks`
@@ -228,6 +229,32 @@ Enables the ping command without any pre-configured scope.
 <td>
 
 Denies the ping command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:allow-rescan-wifi`
+
+</td>
+<td>
+
+Enables the rescan_wifi command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:deny-rescan-wifi`
+
+</td>
+<td>
+
+Denies the rescan_wifi command without any pre-configured scope.
 
 </td>
 </tr>

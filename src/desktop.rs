@@ -318,6 +318,19 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                         device_type_variant.downcast_ref()
                     {
                         if device_type == &2u32 {
+                            let mac_address = match device_props
+                                .get(
+                                    InterfaceName::from_static_str_unchecked(
+                                        "org.freedesktop.NetworkManager.Device",
+                                    ),
+                                    "HwAddress",
+                                )?
+                                .downcast_ref()
+                            {
+                                Some(zbus::zvariant::Value::Str(s)) => s.to_string(),
+                                _ => "00:00:00:00:00:00".to_string(),
+                            };
+
                             // This is a WiFi device, get its access points
                             let wireless_props =
                                 zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
@@ -389,16 +402,6 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                         // Determine security type using helper
                                         let security_type = NetworkManagerHelpers::detect_security_type(&ap_props)?;
 
-                                        let mac_address = match device_props.get(
-                                            InterfaceName::from_static_str_unchecked(
-                                                "org.freedesktop.NetworkManager.Device",
-                                            ),
-                                            "HwAddress",
-                                        )?.downcast_ref() {
-                                            Some(zbus::zvariant::Value::Str(s)) => s.to_string(),
-                                            _ => "00:00:00:00:00:00".to_string(),
-                                        };
-
                                         let is_connected = current_network.ssid == ssid;
 
                                         let network_info = NetworkInfo {
@@ -411,7 +414,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                             } else {
                                                 "0.0.0.0".to_string()
                                             },
-                                            mac_address,
+                                            mac_address: mac_address.clone(),
                                             signal_strength: strength,
                                             security_type,
                                             is_connected,
@@ -433,6 +436,65 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         networks.sort_by(|a, b| b.signal_strength.cmp(&a.signal_strength));
 
         Ok(networks)
+    }
+
+    /// Request an explicit WiFi scan through NetworkManager and return a fresh list.
+    pub fn rescan_wifi(&self) -> Result<Vec<NetworkInfo>> {
+        let devices_variant = self.proxy.get(
+            InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager"),
+            "Devices",
+        )?;
+
+        let mut wifi_device_found = false;
+        let mut requested_scan = false;
+
+        if let Some(zbus::zvariant::Value::Array(devices)) = devices_variant.downcast_ref() {
+            for device in devices.get() {
+                if let zbus::zvariant::Value::ObjectPath(ref device_path) = device {
+                    let device_props = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
+                        .destination("org.freedesktop.NetworkManager")?
+                        .path(device_path)?
+                        .build()?;
+
+                    let device_type_variant = device_props.get(
+                        InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager.Device"),
+                        "DeviceType",
+                    )?;
+
+                    if let Some(zbus::zvariant::Value::U32(device_type)) = device_type_variant.downcast_ref() {
+                        if *device_type == 2 {
+                            wifi_device_found = true;
+
+                            let wireless_proxy = zbus::blocking::Proxy::new(
+                                &self.connection,
+                                "org.freedesktop.NetworkManager",
+                                device_path.as_str(),
+                                "org.freedesktop.NetworkManager.Device.Wireless",
+                            )?;
+
+                            let options: HashMap<String, zbus::zvariant::OwnedValue> = HashMap::new();
+                            if wireless_proxy.call::<_, _, ()>("RequestScan", &(options,)).is_ok() {
+                                requested_scan = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if !wifi_device_found {
+            return Err(crate::error::NetworkError::OperationError(
+                "No wireless device available for scanning".to_string(),
+            ));
+        }
+
+        if !requested_scan {
+            return Err(crate::error::NetworkError::OperationError(
+                "Failed to request WiFi scan on available wireless devices".to_string(),
+            ));
+        }
+
+        self.list_wifi_networks()
     }
 
     /// Connect to a WiFi network
