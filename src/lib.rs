@@ -1,10 +1,14 @@
 use commands::{
-    connect_to_wifi, delete_wifi_connection, disconnect_from_wifi, get_network_state,
+    connect_to_wifi, connect_vpn, create_vpn_profile, delete_vpn_profile, delete_wifi_connection,
+    disconnect_from_wifi, disconnect_vpn, get_network_state, get_vpn_status,
     get_saved_wifi_networks, list_wifi_networks, rescan_wifi, toggle_network_state,
-    get_wireless_enabled, set_wireless_enabled, is_wireless_available,
-    get_network_stats, get_network_interfaces
+    get_wireless_enabled, list_vpn_profiles, set_wireless_enabled, is_wireless_available,
+    update_vpn_profile, get_network_stats, get_network_interfaces
 };
-pub use models::{NetworkInfo, WiFiConnectionConfig, WiFiSecurityType};
+pub use models::{
+    NetworkInfo, VpnCreateConfig, VpnProfile, VpnStatus, VpnUpdateConfig, WiFiConnectionConfig,
+    WiFiSecurityType,
+};
 use std::result::Result;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
@@ -279,6 +283,62 @@ impl<R: Runtime> NetworkManagerState<R> {
             None => Err(NetworkError::OperationError("Stats tracker not initialized".to_string())),
         }
     }
+
+    pub fn list_vpn_profiles(&self) -> Result<Vec<VpnProfile>, NetworkError> {
+        let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
+        match manager.as_ref() {
+            Some(manager) => manager.list_vpn_profiles(),
+            _none => Err(NetworkError::NotInitialized),
+        }
+    }
+
+    pub fn get_vpn_status(&self) -> Result<VpnStatus, NetworkError> {
+        let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
+        match manager.as_ref() {
+            Some(manager) => manager.get_vpn_status(),
+            _none => Err(NetworkError::NotInitialized),
+        }
+    }
+
+    pub fn connect_vpn(&self, uuid: String) -> Result<(), NetworkError> {
+        let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
+        match manager.as_ref() {
+            Some(manager) => manager.connect_vpn(uuid),
+            _none => Err(NetworkError::NotInitialized),
+        }
+    }
+
+    pub fn disconnect_vpn(&self, uuid: Option<String>) -> Result<(), NetworkError> {
+        let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
+        match manager.as_ref() {
+            Some(manager) => manager.disconnect_vpn(uuid),
+            _none => Err(NetworkError::NotInitialized),
+        }
+    }
+
+    pub fn create_vpn_profile(&self, config: VpnCreateConfig) -> Result<VpnProfile, NetworkError> {
+        let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
+        match manager.as_ref() {
+            Some(manager) => manager.create_vpn_profile(config),
+            _none => Err(NetworkError::NotInitialized),
+        }
+    }
+
+    pub fn update_vpn_profile(&self, config: VpnUpdateConfig) -> Result<VpnProfile, NetworkError> {
+        let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
+        match manager.as_ref() {
+            Some(manager) => manager.update_vpn_profile(config),
+            _none => Err(NetworkError::NotInitialized),
+        }
+    }
+
+    pub fn delete_vpn_profile(&self, uuid: String) -> Result<(), NetworkError> {
+        let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
+        match manager.as_ref() {
+            Some(manager) => manager.delete_vpn_profile(uuid),
+            _none => Err(NetworkError::NotInitialized),
+        }
+    }
 }
 
 /// Initializes the plugin.
@@ -298,6 +358,13 @@ pub fn init() -> TauriPlugin<tauri::Wry> {
             is_wireless_available,
             get_network_stats,
             get_network_interfaces,
+            list_vpn_profiles,
+            get_vpn_status,
+            connect_vpn,
+            disconnect_vpn,
+            create_vpn_profile,
+            update_vpn_profile,
+            delete_vpn_profile,
         ])
         .setup(|app, _api| -> Result<(), Box<dyn std::error::Error>> {
             #[cfg(desktop)]
