@@ -124,7 +124,7 @@ impl Default for VpnStatus {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Deserialize, Clone)]
 pub struct VpnCreateConfig {
     pub id: String,
     pub vpn_type: VpnType,
@@ -140,7 +140,7 @@ pub struct VpnCreateConfig {
     pub secrets: Option<std::collections::HashMap<String, String>>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Deserialize, Clone)]
 pub struct VpnUpdateConfig {
     pub uuid: String,
     pub id: Option<String>,
