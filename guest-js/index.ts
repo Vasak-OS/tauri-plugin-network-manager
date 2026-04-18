@@ -30,11 +30,25 @@ export enum WiFiSecurityType {
   WPA3_PSK = 'wpa3-psk'
 }
 
+/**
+ * Wire-format expected by the Rust command `connect_to_wifi`.
+ */
 export interface WiFiConnectionConfig {
   ssid: string;
   password?: string;
+  security_type: WiFiSecurityType;
+  username?: string;
+}
+
+/**
+ * Ergonomic input for frontend code.
+ * This is converted to WiFiConnectionConfig before invoking Rust.
+ */
+export interface ConnectToWifiInput {
+  ssid: string;
+  password?: string;
   securityType: WiFiSecurityType;
-  username?: string; // Para WPA-EAP
+  username?: string;
 }
 
 export async function getCurrentNetworkState(): Promise<NetworkInfo> {
@@ -45,20 +59,42 @@ export async function listWifiNetworks(): Promise<NetworkInfo[]> {
   return await invoke('plugin:network-manager|list_wifi_networks');
 }
 
-export async function connectToWifi(config: WiFiConnectionConfig): Promise<void> {
-  // Trace: log payload sent to native plugin
-  console.log('[network-manager] connectToWifi payload:', {
+function toNativeWiFiConnectionConfig(
+  config: ConnectToWifiInput | WiFiConnectionConfig,
+): WiFiConnectionConfig {
+  if ('security_type' in config) {
+    return config;
+  }
+
+  return {
     ssid: config.ssid,
     password: config.password,
     security_type: config.securityType,
     username: config.username,
-  });
+  };
+}
+
+export async function connectToWifi(
+  config: ConnectToWifiInput | WiFiConnectionConfig,
+): Promise<void> {
+  const nativeConfig = toNativeWiFiConnectionConfig(config);
 
   return await invoke('plugin:network-manager|connect_to_wifi', {
-    ssid: config.ssid,
-    password: config.password,
-    security_type: config.securityType,
-    username: config.username,
+    config: nativeConfig,
+  });
+}
+
+export async function disconnectFromWifi(): Promise<void> {
+  return await invoke('plugin:network-manager|disconnect_from_wifi');
+}
+
+export async function getSavedWifiNetworks(): Promise<NetworkInfo[]> {
+  return await invoke('plugin:network-manager|get_saved_wifi_networks');
+}
+
+export async function deleteWifiConnection(ssid: string): Promise<void> {
+  return await invoke('plugin:network-manager|delete_wifi_connection', {
+    ssid,
   });
 }
 
@@ -80,4 +116,8 @@ export async function isWirelessAvailable(): Promise<boolean> {
 
 export async function getNetworkStats(): Promise<NetworkStats> {
   return await invoke('plugin:network-manager|get_network_stats');
+}
+
+export async function getNetworkInterfaces(): Promise<string[]> {
+  return await invoke('plugin:network-manager|get_network_interfaces');
 }

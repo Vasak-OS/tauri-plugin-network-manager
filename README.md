@@ -1,98 +1,146 @@
 # Tauri Network Manager Plugin
 
-A Rust-based Tauri plugin for managing network connections on Linux systems using NetworkManager.
+Linux-first Tauri plugin to manage network state and Wi-Fi connections through NetworkManager over D-Bus.
 
 ## Features
 
-- Get current network state
-- Toggle network connections
-- Lisen for network state changes
+- Read current network state
+- List available Wi-Fi networks
+- Connect and disconnect Wi-Fi
+- List and delete saved Wi-Fi connections
+- Enable or disable networking and wireless
+- Check wireless adapter availability
+- Read network stats and available interfaces
+- Listen to network change events (`network-changed`)
 
-## Future Work
+## Requirements
 
-- List available WiFi networks
-- Connect to WiFi networks
-- Disconnect from WiFi networks
+- Linux with NetworkManager running
+- Tauri 2
+- Rust 1.77.2+
 
 ## Installation
 
-Add this plugin to your Tauri project by installing the package and registering the plugin.
+### Rust dependency
 
-### Rust (Cargo.toml)
+Add the plugin crate to your Tauri app:
 
 ```toml
 [dependencies]
 tauri-plugin-network-manager = { git = "https://github.com/Vasak-OS/tauri-plugin-network-manager" }
 ```
 
-### Node.js
+Register the plugin in your Tauri builder.
+
+### NPM package
+
+Install the JS guest bindings:
 
 ```bash
-bun add @vasakgroup/plugin-network-manager  
+bun add @vasakgroup/plugin-network-manager
 ```
 
-## Usage
+## Permissions (Tauri capabilities)
 
-```vue
-<template>
-  <button @click="toggleCurrentNetwork"
-    class="p-2 rounded-xl bg-white/50 dark:bg-black/50 hover:bg-white/70 dark:hover:bg-black/70 transition-colors h-[70px] w-[70px]"
-    :disabled="isLoading">
-    <img :src="networkIconSrc" :alt="networkAlt" class="m-auto w-[50px] h-[50px]" />
-  </button>
-</template>
+The default permission set includes:
 
-<script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { listen } from '@tauri-apps/api/event';
-import { getCurrentNetworkState, type NetworkInfo, toggleNetwork } from '@vasakgroup/plugin-network-manager';
+- `network-manager:allow-get-network-state`
+- `network-manager:allow-list-wifi-networks`
+- `network-manager:allow-connect-to-wifi`
+- `network-manager:allow-disconnect-from-wifi`
+- `network-manager:allow-get-saved-wifi-networks`
+- `network-manager:allow-delete-wifi-connection`
+- `network-manager:allow-toggle-network-state`
+- `network-manager:allow-get-wireless-enabled`
+- `network-manager:allow-set-wireless-enabled`
+- `network-manager:allow-is-wireless-available`
 
-let ulisten: Function | null = null;
+## Types exposed in NPM
 
-const networkState = ref<NetworkInfo>(
-  {
-   ...
-  }
-);
+The package exports these TypeScript types:
 
-const toggleCurrentNetwork = async () => {
-  try {
-    await toggleNetwork(!networkState.value.is_connected);
-  } catch (error) {
-    console.error('Error toggling network:', error);
-  }
-};
+- `NetworkInfo`
+- `NetworkStats`
+- `WiFiSecurityType`
+- `WiFiConnectionConfig` (Rust wire format)
+- `ConnectToWifiInput` (frontend-friendly format)
 
-const getCurrentNetwork = async () => {
-  try {
-    networkState.value = await getCurrentNetworkState();
-  } catch (error) {
-    console.error('Error getting current network state:', error);
-  }
-};
+### Security type values
 
-onMounted(async () => {
-  await getCurrentNetwork();
-  ulisten = await listen<NetworkInfo>('network-changed', async (event) => {
-    networkState.value = event.payload;
+`WiFiSecurityType` values are:
+
+- `none`
+- `wep`
+- `wpa-psk`
+- `wpa-eap`
+- `wpa2-psk`
+- `wpa3-psk`
+
+## API reference
+
+### State and scan
+
+- `getCurrentNetworkState(): Promise<NetworkInfo>`
+- `listWifiNetworks(): Promise<NetworkInfo[]>`
+- `getSavedWifiNetworks(): Promise<NetworkInfo[]>`
+
+### Connection management
+
+- `connectToWifi(config: ConnectToWifiInput | WiFiConnectionConfig): Promise<void>`
+- `disconnectFromWifi(): Promise<void>`
+- `deleteWifiConnection(ssid: string): Promise<void>`
+
+### Radio and networking toggles
+
+- `toggleNetwork(enabled: boolean): Promise<void>`
+- `getWirelessEnabled(): Promise<boolean>`
+- `setWirelessEnabled(enabled: boolean): Promise<void>`
+- `isWirelessAvailable(): Promise<boolean>`
+
+### Stats
+
+- `getNetworkStats(): Promise<NetworkStats>`
+- `getNetworkInterfaces(): Promise<string[]>`
+
+## Usage example (TypeScript)
+
+```ts
+import {
+  connectToWifi,
+  deleteWifiConnection,
+  disconnectFromWifi,
+  getCurrentNetworkState,
+  getSavedWifiNetworks,
+  listWifiNetworks,
+  WiFiSecurityType,
+} from '@vasakgroup/plugin-network-manager';
+
+async function run() {
+  const state = await getCurrentNetworkState();
+  console.log('Current network:', state);
+
+  const available = await listWifiNetworks();
+  console.log('Available Wi-Fi:', available.map((n) => n.ssid));
+
+  await connectToWifi({
+    ssid: 'OfficeWiFi',
+    password: 'secret-password',
+    securityType: WiFiSecurityType.WPA2_PSK,
   });
-});
 
-onUnmounted(() => {
-  if (ulisten !== null) {
-    ulisten();
-  }
-});
-</script>
+  const saved = await getSavedWifiNetworks();
+  console.log('Saved Wi-Fi:', saved.map((n) => n.ssid));
+
+  await disconnectFromWifi();
+  await deleteWifiConnection('OldNetwork');
+}
+
+run().catch(console.error);
 ```
 
-## Requirements
+## Notes
 
-- Linux with NetworkManager
-- Rust 1.77.2+
-- Tauri 2.5+
-
-## Dependencies
-
-- networkmanager
-- dbus
+- `connectToWifi` accepts both formats:
+  - Frontend-friendly: `{ securityType: ... }`
+  - Rust wire-format: `{ security_type: ... }`
+- The wrapper maps frontend input to the command payload expected by Rust.
