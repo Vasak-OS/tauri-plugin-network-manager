@@ -73,4 +73,33 @@ describe('network-manager guest-js smoke', () => {
       code: mod.NetworkManagerErrorCode.PERMISSION_DENIED,
     });
   });
+
+  it('calls list vpn profiles command', async () => {
+    invokeMock.mockResolvedValueOnce([]);
+    const mod = await import('./index');
+
+    await mod.listVpnProfiles();
+
+    expect(invokeMock).toHaveBeenCalledWith('plugin:network-manager|list_vpn_profiles', undefined);
+  });
+
+  it('calls connect vpn command', async () => {
+    const mod = await import('./index');
+
+    await mod.connectVpn('vpn-uuid-1');
+
+    expect(invokeMock).toHaveBeenCalledWith('plugin:network-manager|connect_vpn', {
+      uuid: 'vpn-uuid-1',
+    });
+  });
+
+  it('returns typed vpn profile not found error', async () => {
+    invokeMock.mockRejectedValueOnce(new Error('VPN profile not found: vpn-uuid-1'));
+    const mod = await import('./index');
+
+    await expect(mod.connectVpn('vpn-uuid-1')).rejects.toMatchObject({
+      name: 'NetworkManagerError',
+      code: mod.NetworkManagerErrorCode.VPN_PROFILE_NOT_FOUND,
+    });
+  });
 });
