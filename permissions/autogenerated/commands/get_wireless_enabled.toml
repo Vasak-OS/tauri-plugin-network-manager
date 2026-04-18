@@ -1,4 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
 [[permission]]
 identifier = "allow-get-wireless-enabled"
-description = "Enables get_wireless_enabled"
+description = "Enables the get_wireless_enabled command without any pre-configured scope."
 commands.allow = ["get_wireless_enabled"]
+
+[[permission]]
+identifier = "deny-get-wireless-enabled"
+description = "Denies the get_wireless_enabled command without any pre-configured scope."
+commands.deny = ["get_wireless_enabled"]

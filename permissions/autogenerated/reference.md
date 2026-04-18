@@ -212,6 +212,32 @@ Denies the disconnect_vpn command without any pre-configured scope.
 <tr>
 <td>
 
+`network-manager:allow-get-network-interfaces`
+
+</td>
+<td>
+
+Enables the get_network_interfaces command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:deny-get-network-interfaces`
+
+</td>
+<td>
+
+Denies the get_network_interfaces command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `network-manager:allow-get-network-state`
 
 </td>
@@ -231,6 +257,32 @@ Enables the get_network_state command without any pre-configured scope.
 <td>
 
 Denies the get_network_state command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:allow-get-network-stats`
+
+</td>
+<td>
+
+Enables the get_network_stats command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:deny-get-network-stats`
+
+</td>
+<td>
+
+Denies the get_network_stats command without any pre-configured scope.
 
 </td>
 </tr>
@@ -295,7 +347,20 @@ Denies the get_vpn_status command without any pre-configured scope.
 </td>
 <td>
 
-Enables get_wireless_enabled
+Enables the get_wireless_enabled command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:deny-get-wireless-enabled`
+
+</td>
+<td>
+
+Denies the get_wireless_enabled command without any pre-configured scope.
 
 </td>
 </tr>
@@ -308,7 +373,20 @@ Enables get_wireless_enabled
 </td>
 <td>
 
-Enables is_wireless_available
+Enables the is_wireless_available command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:deny-is-wireless-available`
+
+</td>
+<td>
+
+Denies the is_wireless_available command without any pre-configured scope.
 
 </td>
 </tr>
@@ -425,7 +503,20 @@ Denies the rescan_wifi command without any pre-configured scope.
 </td>
 <td>
 
-Enables set_wireless_enabled
+Enables the set_wireless_enabled command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:deny-set-wireless-enabled`
+
+</td>
+<td>
+
+Denies the set_wireless_enabled command without any pre-configured scope.
 
 </td>
 </tr>

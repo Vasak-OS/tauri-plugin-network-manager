@@ -379,6 +379,18 @@
           "markdownDescription": "Denies the disconnect_vpn command without any pre-configured scope."
         },
         {
+          "description": "Enables the get_network_interfaces command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-network-interfaces",
+          "markdownDescription": "Enables the get_network_interfaces command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_network_interfaces command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-network-interfaces",
+          "markdownDescription": "Denies the get_network_interfaces command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_network_state command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-network-state",
@@ -389,6 +401,18 @@
           "type": "string",
           "const": "deny-get-network-state",
           "markdownDescription": "Denies the get_network_state command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_network_stats command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-network-stats",
+          "markdownDescription": "Enables the get_network_stats command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_network_stats command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-network-stats",
+          "markdownDescription": "Denies the get_network_stats command without any pre-configured scope."
         },
         {
           "description": "Enables the get_saved_wifi_networks command without any pre-configured scope.",
@@ -415,16 +439,28 @@
           "markdownDescription": "Denies the get_vpn_status command without any pre-configured scope."
         },
         {
-          "description": "Enables get_wireless_enabled",
+          "description": "Enables the get_wireless_enabled command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-wireless-enabled",
-          "markdownDescription": "Enables get_wireless_enabled"
+          "markdownDescription": "Enables the get_wireless_enabled command without any pre-configured scope."
         },
         {
-          "description": "Enables is_wireless_available",
+          "description": "Denies the get_wireless_enabled command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-wireless-enabled",
+          "markdownDescription": "Denies the get_wireless_enabled command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the is_wireless_available command without any pre-configured scope.",
           "type": "string",
           "const": "allow-is-wireless-available",
-          "markdownDescription": "Enables is_wireless_available"
+          "markdownDescription": "Enables the is_wireless_available command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the is_wireless_available command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-is-wireless-available",
+          "markdownDescription": "Denies the is_wireless_available command without any pre-configured scope."
         },
         {
           "description": "Enables the list_vpn_profiles command without any pre-configured scope.",
@@ -475,10 +511,16 @@
           "markdownDescription": "Denies the rescan_wifi command without any pre-configured scope."
         },
         {
-          "description": "Enables set_wireless_enabled",
+          "description": "Enables the set_wireless_enabled command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-wireless-enabled",
-          "markdownDescription": "Enables set_wireless_enabled"
+          "markdownDescription": "Enables the set_wireless_enabled command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_wireless_enabled command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-wireless-enabled",
+          "markdownDescription": "Denies the set_wireless_enabled command without any pre-configured scope."
         },
         {
           "description": "Enables the toggle_network command without any pre-configured scope.",
