@@ -1,6 +1,6 @@
 use commands::{
     connect_to_wifi, delete_wifi_connection, disconnect_from_wifi, get_network_state,
-    get_saved_wifi_networks, list_wifi_networks, toggle_network_state,
+    get_saved_wifi_networks, list_wifi_networks, rescan_wifi, toggle_network_state,
     get_wireless_enabled, set_wireless_enabled, is_wireless_available,
     get_network_stats, get_network_interfaces
 };
@@ -8,6 +8,7 @@ pub use models::{NetworkInfo, WiFiConnectionConfig, WiFiSecurityType};
 use serde::{Deserialize, Serialize};
 use std::result::Result;
 use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
 use tauri::{
     plugin::{Builder, TauriPlugin},
     AppHandle, Emitter, Manager, Runtime,
@@ -28,6 +29,12 @@ pub use crate::error::{NetworkError, Result as NetworkResult};
 pub struct NetworkManagerState<R: Runtime> {
     pub manager: Arc<RwLock<Option<crate::models::VSKNetworkManager<'static, R>>>>,
     pub stats_tracker: Arc<RwLock<Option<crate::network_stats::NetworkStatsTracker>>>,
+    pub wifi_networks_cache: Arc<RwLock<Option<WifiNetworksCache>>>,
+}
+
+pub struct WifiNetworksCache {
+    pub data: Vec<NetworkInfo>,
+    pub fetched_at: Instant,
 }
 
 impl<R: Runtime> Default for NetworkManagerState<R> {
@@ -35,6 +42,7 @@ impl<R: Runtime> Default for NetworkManagerState<R> {
         Self {
             manager: Arc::new(RwLock::new(None)),
             stats_tracker: Arc::new(RwLock::new(None)),
+            wifi_networks_cache: Arc::new(RwLock::new(None)),
         }
     }
 }
@@ -57,7 +65,7 @@ pub fn spawn_network_change_emitter<R: tauri::Runtime>(
 
         let mut pending_event: Option<crate::models::NetworkInfo> = None;
         let mut debounce_deadline: Option<Instant> = None;
-        let debounce_duration = Duration::from_millis(500);
+        let debounce_duration = Duration::from_millis(250);
 
         loop {
             if let Some(deadline) = debounce_deadline {
@@ -87,13 +95,9 @@ pub fn spawn_network_change_emitter<R: tauri::Runtime>(
                 // No pending event, block until one arrives
                 match rx.recv() {
                     Ok(info) => {
-                        pending_event = Some(info);
-                        // Emit immediately for first event? Or debounce?
-                        // Plan says "Debounce rapid state changes". So we should debounce.
-                        // But latency... 500ms latency on click ("Disconnect") might be annoying.
-                        // Ideally we emit first one immediately, then debounce subsequent?
-                        // "Trailing" vs "Leading".
-                        // Use trailing for stability (state is settling).
+                        // Leading emission improves perceived latency for UI updates.
+                        let _ = app.emit("network-changed", &info);
+                        pending_event = None;
                         debounce_deadline = Some(Instant::now() + debounce_duration);
                     }
                     Err(_) => break,
@@ -108,15 +112,66 @@ impl<R: Runtime> NetworkManagerState<R> {
         Self {
             manager: Arc::new(RwLock::new(manager)),
             stats_tracker: Arc::new(RwLock::new(None)),
+            wifi_networks_cache: Arc::new(RwLock::new(None)),
         }
     }
 
-    pub fn list_wifi_networks(&self) -> Result<Vec<NetworkInfo>, NetworkError> {
+    pub fn list_wifi_networks(
+        &self,
+        force_refresh: bool,
+        ttl_ms: Option<u64>,
+    ) -> Result<Vec<NetworkInfo>, NetworkError> {
+        let ttl = Duration::from_millis(ttl_ms.unwrap_or(3000).clamp(250, 30000));
+
+        if !force_refresh {
+            let cache = self
+                .wifi_networks_cache
+                .read()
+                .map_err(|_| NetworkError::LockError)?;
+            if let Some(cache_entry) = cache.as_ref() {
+                if cache_entry.fetched_at.elapsed() <= ttl {
+                    return Ok(cache_entry.data.clone());
+                }
+            }
+        }
+
         let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
-        match manager.as_ref() {
+        let networks = match manager.as_ref() {
             Some(manager) => manager.list_wifi_networks(),
             _none => Err(NetworkError::NotInitialized),
-        }
+        }?;
+
+        let mut cache = self
+            .wifi_networks_cache
+            .write()
+            .map_err(|_| NetworkError::LockError)?;
+        *cache = Some(WifiNetworksCache {
+            data: networks.clone(),
+            fetched_at: Instant::now(),
+        });
+
+        Ok(networks)
+    }
+
+    pub fn invalidate_wifi_networks_cache(&self) -> Result<(), NetworkError> {
+        let mut cache = self
+            .wifi_networks_cache
+            .write()
+            .map_err(|_| NetworkError::LockError)?;
+        *cache = None;
+        Ok(())
+    }
+
+    pub fn rescan_wifi(&self) -> Result<Vec<NetworkInfo>, NetworkError> {
+        let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
+        match manager.as_ref() {
+            Some(manager) => manager.rescan_wifi()?,
+            _none => return Err(NetworkError::NotInitialized),
+        };
+        drop(manager);
+
+        self.invalidate_wifi_networks_cache()?;
+        self.list_wifi_networks(true, None)
     }
 
     pub fn connect_to_wifi(&self, config: WiFiConnectionConfig) -> Result<(), NetworkError> {
@@ -244,6 +299,7 @@ pub fn init() -> TauriPlugin<tauri::Wry> {
             connect_to_wifi,
             disconnect_from_wifi,
             get_saved_wifi_networks,
+            rescan_wifi,
             delete_wifi_connection,
             toggle_network_state,
             get_wireless_enabled,

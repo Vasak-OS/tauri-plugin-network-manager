@@ -21,9 +21,20 @@ pub async fn get_network_state(app_handle: AppHandle) -> Result<NetworkInfo> {
 
 /// List available WiFi networks
 #[tauri::command]
-pub async fn list_wifi_networks(app_handle: AppHandle) -> Result<Vec<NetworkInfo>> {
+pub async fn list_wifi_networks(
+    app_handle: AppHandle,
+    force_refresh: Option<bool>,
+    ttl_ms: Option<u64>,
+) -> Result<Vec<NetworkInfo>> {
     let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
-    state.list_wifi_networks()
+    state.list_wifi_networks(force_refresh.unwrap_or(false), ttl_ms)
+}
+
+/// Trigger a WiFi rescan and return a fresh list
+#[tauri::command]
+pub fn rescan_wifi(app_handle: AppHandle) -> Result<Vec<NetworkInfo>> {
+    let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
+    state.rescan_wifi()
 }
 
 /// Connect to a WiFi network

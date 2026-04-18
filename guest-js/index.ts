@@ -51,12 +51,26 @@ export interface ConnectToWifiInput {
   username?: string;
 }
 
+export interface ListWifiNetworksOptions {
+  forceRefresh?: boolean;
+  ttlMs?: number;
+}
+
 export async function getCurrentNetworkState(): Promise<NetworkInfo> {
   return await invoke('plugin:network-manager|get_network_state');
 }
 
-export async function listWifiNetworks(): Promise<NetworkInfo[]> {
-  return await invoke('plugin:network-manager|list_wifi_networks');
+export async function listWifiNetworks(
+  options: ListWifiNetworksOptions = {},
+): Promise<NetworkInfo[]> {
+  return await invoke('plugin:network-manager|list_wifi_networks', {
+    force_refresh: options.forceRefresh,
+    ttl_ms: options.ttlMs,
+  });
+}
+
+export async function rescanWifi(): Promise<NetworkInfo[]> {
+  return await invoke('plugin:network-manager|rescan_wifi');
 }
 
 function toNativeWiFiConnectionConfig(
