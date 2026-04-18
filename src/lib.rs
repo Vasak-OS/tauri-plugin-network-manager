@@ -6,8 +6,8 @@ use commands::{
     update_vpn_profile, get_network_stats, get_network_interfaces
 };
 pub use models::{
-    NetworkInfo, VpnCreateConfig, VpnProfile, VpnStatus, VpnUpdateConfig, WiFiConnectionConfig,
-    WiFiSecurityType,
+    NetworkInfo, VpnConnectionState, VpnCreateConfig, VpnEventPayload, VpnProfile, VpnStatus,
+    VpnUpdateConfig, WiFiConnectionConfig, WiFiSecurityType,
 };
 use std::result::Result;
 use std::sync::{Arc, RwLock};
@@ -67,6 +67,8 @@ pub fn spawn_network_change_emitter<R: tauri::Runtime>(
         use std::sync::mpsc::RecvTimeoutError;
 
         let mut pending_event: Option<crate::models::NetworkInfo> = None;
+        let mut pending_vpn_status: Option<crate::models::VpnStatus> = None;
+        let mut last_vpn_status: Option<crate::models::VpnStatus> = None;
         let mut debounce_deadline: Option<Instant> = None;
         let debounce_duration = Duration::from_millis(250);
 
@@ -78,6 +80,9 @@ pub fn spawn_network_change_emitter<R: tauri::Runtime>(
                     if let Some(info) = pending_event.take() {
                         let _ = app.emit("network-changed", &info);
                     }
+                    if let Some(vpn_status) = pending_vpn_status.take() {
+                        emit_vpn_events(&app, &network_manager, &mut last_vpn_status, vpn_status);
+                    }
                     debounce_deadline = None;
                 } else {
                     // Wait for remaining time or new event
@@ -86,6 +91,9 @@ pub fn spawn_network_change_emitter<R: tauri::Runtime>(
                         Ok(info) => {
                             // New event during debounce window: update pending and extend deadline
                             pending_event = Some(info);
+                            if let Ok(vpn_status) = network_manager.get_vpn_status() {
+                                pending_vpn_status = Some(vpn_status);
+                            }
                             debounce_deadline = Some(Instant::now() + debounce_duration);
                         }
                         Err(RecvTimeoutError::Timeout) => {
@@ -100,7 +108,11 @@ pub fn spawn_network_change_emitter<R: tauri::Runtime>(
                     Ok(info) => {
                         // Leading emission improves perceived latency for UI updates.
                         let _ = app.emit("network-changed", &info);
+                        if let Ok(vpn_status) = network_manager.get_vpn_status() {
+                            emit_vpn_events(&app, &network_manager, &mut last_vpn_status, vpn_status);
+                        }
                         pending_event = None;
+                        pending_vpn_status = None;
                         debounce_deadline = Some(Instant::now() + debounce_duration);
                     }
                     Err(_) => break,
@@ -108,6 +120,66 @@ pub fn spawn_network_change_emitter<R: tauri::Runtime>(
             }
         }
     });
+}
+
+fn resolve_active_vpn_profile<R: tauri::Runtime>(
+    network_manager: &crate::models::VSKNetworkManager<'static, R>,
+    status: &VpnStatus,
+) -> Option<VpnProfile> {
+    let active_uuid = status.active_profile_uuid.as_deref()?;
+    let profiles = network_manager.list_vpn_profiles().ok()?;
+    profiles.into_iter().find(|profile| profile.uuid == active_uuid)
+}
+
+fn emit_vpn_events<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    network_manager: &crate::models::VSKNetworkManager<'static, R>,
+    last_vpn_status: &mut Option<VpnStatus>,
+    status: VpnStatus,
+) {
+    let previous = last_vpn_status.clone();
+    if previous.as_ref() == Some(&status) {
+        return;
+    }
+
+    let profile = resolve_active_vpn_profile(network_manager, &status);
+    let payload = VpnEventPayload {
+        status: status.clone(),
+        profile,
+        reason: None,
+    };
+
+    let _ = app.emit("vpn-changed", &payload);
+
+    let previous_state = previous
+        .as_ref()
+        .map(|s| s.state.clone())
+        .unwrap_or(VpnConnectionState::Unknown);
+
+    match status.state {
+        VpnConnectionState::Connected => {
+            if previous_state != VpnConnectionState::Connected {
+                let _ = app.emit("vpn-connected", &payload);
+            }
+        }
+        VpnConnectionState::Disconnected => {
+            if previous_state == VpnConnectionState::Connected
+                || previous_state == VpnConnectionState::Disconnecting
+            {
+                let _ = app.emit("vpn-disconnected", &payload);
+            }
+        }
+        VpnConnectionState::Failed => {
+            let failed_payload = VpnEventPayload {
+                reason: Some("vpn-connection-failed".to_string()),
+                ..payload.clone()
+            };
+            let _ = app.emit("vpn-failed", &failed_payload);
+        }
+        _ => {}
+    }
+
+    *last_vpn_status = Some(status);
 }
 
 impl<R: Runtime> NetworkManagerState<R> {
