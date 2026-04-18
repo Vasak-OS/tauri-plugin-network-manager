@@ -59,4 +59,25 @@ pub enum NetworkError {
     
     #[error("Failed to create runtime")]
     RuntimeError,
+
+    #[error("VPN profile not found: {0}")]
+    VpnProfileNotFound(String),
+
+    #[error("VPN profile already connected: {0}")]
+    VpnAlreadyConnected(String),
+
+    #[error("VPN authentication failed: {0}")]
+    VpnAuthFailed(String),
+
+    #[error("VPN invalid config: {0}")]
+    VpnInvalidConfig(String),
+
+    #[error("VPN activation failed: {0}")]
+    VpnActivationFailed(String),
+
+    #[error("VPN plugin unavailable: {0}")]
+    VpnPluginUnavailable(String),
+
+    #[error("No active VPN connection")]
+    VpnNotActive,
 }
