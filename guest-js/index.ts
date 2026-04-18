@@ -118,6 +118,12 @@ export interface VpnStatus {
   since_unix_ms?: number;
 }
 
+export interface VpnEventPayload {
+  status: VpnStatus;
+  profile?: VpnProfile;
+  reason?: string;
+}
+
 export interface VpnCreateInput {
   id: string;
   vpn_type: VpnType;
