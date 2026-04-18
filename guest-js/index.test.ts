@@ -227,7 +227,7 @@ describe('network-manager guest-js smoke', () => {
       code: mod.NetworkManagerErrorCode.VPN_AUTH_FAILED,
     });
 
-    invokeMock.mockRejectedValueOnce(new Error('VPN invalid config: x'));
+    invokeMock.mockRejectedValueOnce(new Error('VPN invalid config'));
     await expect(mod.createVpnProfile({ id: 'x', vpn_type: 'generic' })).rejects.toMatchObject({
       code: mod.NetworkManagerErrorCode.VPN_INVALID_CONFIG,
     });
