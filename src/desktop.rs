@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::process::Command;
 use std::sync::mpsc;
 use tauri::{plugin::PluginApi, AppHandle, Runtime};
 use zbus::names::InterfaceName;
@@ -437,7 +436,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
     }
 
     /// Connect to a WiFi network
-    pub async fn connect_to_wifi(&self, config: WiFiConnectionConfig) -> Result<()> {
+    pub fn connect_to_wifi(&self, config: WiFiConnectionConfig) -> Result<()> {
         // Log connection attempt
         log::debug!("connect_to_wifi called: ssid='{}' security={:?} username={:?}",
                   config.ssid, config.security_type, config.username);
@@ -548,11 +547,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             "org.freedesktop.NetworkManager",
         )?;
 
-        let state = if enabled { "on" } else { "off" };
-        let _output = Command::new("nmcli")
-            .arg("networking")
-            .arg(state)
-            .output()?;
+        nm_proxy.set_property("NetworkingEnabled", enabled)?;
 
         let current_state: bool = nm_proxy.get_property("NetworkingEnabled")?;
         Ok(current_state)
@@ -671,7 +666,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
     }
 
     /// Disconnect from the current WiFi network
-    pub async fn disconnect_from_wifi(&self) -> Result<()> {
+    pub fn disconnect_from_wifi(&self) -> Result<()> {
         // Obtener el estado actual de la red para identificar la conexión activa
         let _current_state = self.get_current_network_state()?;
 
