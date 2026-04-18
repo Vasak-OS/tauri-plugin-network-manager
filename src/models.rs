@@ -92,7 +92,7 @@ pub enum VpnConnectionState {
     Unknown,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct VpnStatus {
     pub state: VpnConnectionState,
     pub active_profile_id: Option<String>,
@@ -101,6 +101,13 @@ pub struct VpnStatus {
     pub ip_address: Option<String>,
     pub gateway: Option<String>,
     pub since_unix_ms: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct VpnEventPayload {
+    pub status: VpnStatus,
+    pub profile: Option<VpnProfile>,
+    pub reason: Option<String>,
 }
 
 impl Default for VpnStatus {
