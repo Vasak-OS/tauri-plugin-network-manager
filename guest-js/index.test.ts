@@ -217,7 +217,7 @@ describe('network-manager guest-js smoke', () => {
   it('maps vpn typed errors', async () => {
     const mod = await import('./index');
 
-    invokeMock.mockRejectedValueOnce(new Error('VPN already connected: vpn-uuid-1'));
+    invokeMock.mockRejectedValueOnce(new Error('VPN profile already connected: vpn-uuid-1'));
     await expect(mod.connectVpn('vpn-uuid-1')).rejects.toMatchObject({
       code: mod.NetworkManagerErrorCode.VPN_ALREADY_CONNECTED,
     });
@@ -227,7 +227,7 @@ describe('network-manager guest-js smoke', () => {
       code: mod.NetworkManagerErrorCode.VPN_AUTH_FAILED,
     });
 
-    invokeMock.mockRejectedValueOnce(new Error('Invalid VPN configuration'));
+    invokeMock.mockRejectedValueOnce(new Error('VPN invalid config: x'));
     await expect(mod.createVpnProfile({ id: 'x', vpn_type: 'generic' })).rejects.toMatchObject({
       code: mod.NetworkManagerErrorCode.VPN_INVALID_CONFIG,
     });
@@ -242,7 +242,7 @@ describe('network-manager guest-js smoke', () => {
       code: mod.NetworkManagerErrorCode.VPN_PLUGIN_UNAVAILABLE,
     });
 
-    invokeMock.mockRejectedValueOnce(new Error('No VPN active'));
+    invokeMock.mockRejectedValueOnce(new Error('No active VPN connection'));
     await expect(mod.disconnectVpn()).rejects.toMatchObject({
       code: mod.NetworkManagerErrorCode.VPN_NOT_ACTIVE,
     });

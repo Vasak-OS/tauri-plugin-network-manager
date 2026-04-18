@@ -181,17 +181,17 @@ function normalizeInvokeError(error: unknown): NetworkManagerError {
     code = NetworkManagerErrorCode.OPERATION_FAILED;
   } else if (message.includes('vpn profile not found')) {
     code = NetworkManagerErrorCode.VPN_PROFILE_NOT_FOUND;
-  } else if (message.includes('vpn already connected')) {
+  } else if (message.includes('vpn already connected') || message.includes('vpn profile already connected')) {
     code = NetworkManagerErrorCode.VPN_ALREADY_CONNECTED;
   } else if (message.includes('vpn authentication failed')) {
     code = NetworkManagerErrorCode.VPN_AUTH_FAILED;
-  } else if (message.includes('invalid vpn configuration')) {
+  } else if (message.includes('invalid vpn configuration') || message.includes('vpn invalid config')) {
     code = NetworkManagerErrorCode.VPN_INVALID_CONFIG;
   } else if (message.includes('vpn activation failed')) {
     code = NetworkManagerErrorCode.VPN_ACTIVATION_FAILED;
   } else if (message.includes('vpn plugin unavailable')) {
     code = NetworkManagerErrorCode.VPN_PLUGIN_UNAVAILABLE;
-  } else if (message.includes('no vpn active')) {
+  } else if (message.includes('no vpn active') || message.includes('no active vpn connection')) {
     code = NetworkManagerErrorCode.VPN_NOT_ACTIVE;
   }
 
