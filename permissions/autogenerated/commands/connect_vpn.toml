@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-connect-vpn"
+description = "Enables the connect_vpn command without any pre-configured scope."
+commands.allow = ["connect_vpn"]
+
+[[permission]]
+identifier = "deny-connect-vpn"
+description = "Denies the connect_vpn command without any pre-configured scope."
+commands.deny = ["connect_vpn"]
