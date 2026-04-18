@@ -5,7 +5,6 @@ use commands::{
     get_network_stats, get_network_interfaces
 };
 pub use models::{NetworkInfo, WiFiConnectionConfig, WiFiSecurityType};
-use serde::{Deserialize, Serialize};
 use std::result::Result;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
@@ -280,14 +279,6 @@ impl<R: Runtime> NetworkManagerState<R> {
             None => Err(NetworkError::OperationError("Stats tracker not initialized".to_string())),
         }
     }
-}
-
-#[derive(Serialize, Deserialize)]
-struct NetworkRequest {
-    ssid: String,
-    password: Option<String>,
-    security_type: WiFiSecurityType,
-    username: Option<String>,
 }
 
 /// Initializes the plugin.

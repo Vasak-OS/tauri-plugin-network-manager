@@ -46,6 +46,7 @@ The default permission set includes:
 
 - `network-manager:allow-get-network-state`
 - `network-manager:allow-list-wifi-networks`
+- `network-manager:allow-rescan-wifi`
 - `network-manager:allow-connect-to-wifi`
 - `network-manager:allow-disconnect-from-wifi`
 - `network-manager:allow-get-saved-wifi-networks`
@@ -64,6 +65,9 @@ The package exports these TypeScript types:
 - `WiFiSecurityType`
 - `WiFiConnectionConfig` (Rust wire format)
 - `ConnectToWifiInput` (frontend-friendly format)
+- `ListWifiNetworksOptions`
+- `NetworkManagerErrorCode`
+- `NetworkManagerError`
 
 ### Security type values
 
@@ -81,7 +85,8 @@ The package exports these TypeScript types:
 ### State and scan
 
 - `getCurrentNetworkState(): Promise<NetworkInfo>`
-- `listWifiNetworks(): Promise<NetworkInfo[]>`
+- `listWifiNetworks(options?: ListWifiNetworksOptions): Promise<NetworkInfo[]>`
+- `rescanWifi(): Promise<NetworkInfo[]>`
 - `getSavedWifiNetworks(): Promise<NetworkInfo[]>`
 
 ### Connection management
@@ -144,3 +149,21 @@ run().catch(console.error);
   - Frontend-friendly: `{ securityType: ... }`
   - Rust wire-format: `{ security_type: ... }`
 - The wrapper maps frontend input to the command payload expected by Rust.
+- `listWifiNetworks` supports cache control:
+  - `forceRefresh`: bypasses cache
+  - `ttlMs`: cache TTL in milliseconds
+- All exported async functions throw a typed `NetworkManagerError` with `code` when invoke fails.
+
+## Testing
+
+- Build package:
+
+```bash
+bun run build
+```
+
+- Run smoke tests (scan/connect/disconnect wrapper flows):
+
+```bash
+bun run test
+```
