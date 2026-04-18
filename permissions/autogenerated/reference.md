@@ -17,11 +17,6 @@ Default permissions for the plugin
 - `is_wireless_available`
 - `list_vpn_profiles`
 - `get_vpn_status`
-- `connect_vpn`
-- `disconnect_vpn`
-- `create_vpn_profile`
-- `update_vpn_profile`
-- `delete_vpn_profile`
 
 ## Permission Table
 
@@ -509,6 +504,19 @@ Enables the update_vpn_profile command without any pre-configured scope.
 <td>
 
 Denies the update_vpn_profile command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:vpn_management`
+
+</td>
+<td>
+
+Permission set for mutating VPN connections and profiles.
 
 </td>
 </tr>

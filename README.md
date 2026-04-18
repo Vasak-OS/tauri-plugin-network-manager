@@ -61,6 +61,15 @@ The default permission set includes:
 - `network-manager:allow-is-wireless-available`
 - `network-manager:allow-list-vpn-profiles`
 - `network-manager:allow-get-vpn-status`
+
+Mutating VPN operations are intentionally excluded from default permissions.
+
+To enable VPN management operations, add the dedicated permission set:
+
+- `network-manager:vpn_management`
+
+This set includes:
+
 - `network-manager:allow-connect-vpn`
 - `network-manager:allow-disconnect-vpn`
 - `network-manager:allow-create-vpn-profile`
