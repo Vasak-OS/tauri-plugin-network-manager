@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-update-vpn-profile"
+description = "Enables the update_vpn_profile command without any pre-configured scope."
+commands.allow = ["update_vpn_profile"]
+
+[[permission]]
+identifier = "deny-update-vpn-profile"
+description = "Denies the update_vpn_profile command without any pre-configured scope."
+commands.deny = ["update_vpn_profile"]
