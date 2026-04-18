@@ -30,7 +30,7 @@ pub async fn list_wifi_networks(app_handle: AppHandle) -> Result<Vec<NetworkInfo
 #[tauri::command]
 pub fn connect_to_wifi(app_handle: AppHandle, config: WiFiConnectionConfig) -> Result<()> {
     let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
-    let _ = state.connect_to_wifi(config);
+    state.connect_to_wifi(config)?;
     Ok(())
 }
 
@@ -38,7 +38,7 @@ pub fn connect_to_wifi(app_handle: AppHandle, config: WiFiConnectionConfig) -> R
 #[tauri::command]
 pub fn disconnect_from_wifi(app_handle: AppHandle) -> Result<()> {
     let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
-    let _ = state.disconnect_from_wifi();
+    state.disconnect_from_wifi()?;
     Ok(())
 }
 
@@ -53,7 +53,13 @@ pub async fn get_saved_wifi_networks(app_handle: AppHandle) -> Result<Vec<Networ
 #[tauri::command]
 pub fn delete_wifi_connection(app_handle: AppHandle, ssid: &str) -> Result<()> {
     let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
-    let _ = state.delete_wifi_connection(ssid);
+    let deleted = state.delete_wifi_connection(ssid)?;
+    if !deleted {
+        return Err(NetworkError::OperationError(format!(
+            "No saved WiFi connection found for SSID '{}'",
+            ssid
+        )));
+    }
     Ok(())
 }
 
@@ -61,7 +67,7 @@ pub fn delete_wifi_connection(app_handle: AppHandle, ssid: &str) -> Result<()> {
 #[tauri::command]
 pub fn toggle_network_state(app_handle: AppHandle, enabled: bool) -> Result<()> {
     let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
-    let _ = state.toggle_network_state(enabled);
+    state.toggle_network_state(enabled)?;
     Ok(())
 }
 

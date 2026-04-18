@@ -119,18 +119,18 @@ impl<R: Runtime> NetworkManagerState<R> {
         }
     }
 
-    pub async fn connect_to_wifi(&self, config: WiFiConnectionConfig) -> Result<(), NetworkError> {
+    pub fn connect_to_wifi(&self, config: WiFiConnectionConfig) -> Result<(), NetworkError> {
         let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
         match manager.as_ref() {
-            Some(manager) => manager.connect_to_wifi(config).await,
+            Some(manager) => manager.connect_to_wifi(config),
             _none => Err(NetworkError::NotInitialized),
         }
     }
 
-    pub async fn disconnect_from_wifi(&self) -> Result<(), NetworkError> {
+    pub fn disconnect_from_wifi(&self) -> Result<(), NetworkError> {
         let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
         match manager.as_ref() {
-            Some(manager) => manager.disconnect_from_wifi().await,
+            Some(manager) => manager.disconnect_from_wifi(),
             _none => Err(NetworkError::NotInitialized),
         }
     }
