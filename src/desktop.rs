@@ -43,7 +43,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             1 => VpnConnectionState::Connecting,
             2 => VpnConnectionState::Connected,
             3 => VpnConnectionState::Disconnecting,
-            4 => VpnConnectionState::Failed,
+            4 => VpnConnectionState::Disconnected,
             _ => VpnConnectionState::Unknown,
         }
     }
@@ -1603,6 +1603,19 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
         conn_proxy.call::<_, _, ()>("Delete", &())?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vpn_state_deactivated_maps_to_disconnected() {
+        assert_eq!(
+            VSKNetworkManager::<tauri::Wry>::vpn_state_from_active_state(4),
+            VpnConnectionState::Disconnected
+        );
     }
 }
 
