@@ -67,25 +67,19 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
     }
 
     fn string_map_from_section(
-        settings: &HashMap<String, zbus::zvariant::OwnedValue>,
+        settings: &HashMap<String, HashMap<String, zbus::zvariant::OwnedValue>>,
         section_name: &str,
     ) -> HashMap<String, String> {
         let mut out = HashMap::new();
         let section = match settings.get(section_name) {
-            Some(v) => v.to_owned(),
-            None => return out,
-        };
-        let dict = match <zbus::zvariant::Value<'_> as Clone>::clone(&section)
-            .downcast::<HashMap<String, zbus::zvariant::OwnedValue>>()
-        {
-            Some(d) => d,
+            Some(v) => v,
             None => return out,
         };
 
-        for (k, v) in dict {
-            let value = <zbus::zvariant::Value<'_> as Clone>::clone(&v);
+        for (k, v) in section {
+            let value = <zbus::zvariant::Value<'_> as Clone>::clone(v);
             if let Some(s) = value.downcast::<String>() {
-                out.insert(k, s);
+                out.insert(k.clone(), s);
             }
         }
         out
@@ -107,7 +101,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
     fn get_connection_settings(
         &self,
         conn_path: &zbus::zvariant::OwnedObjectPath,
-    ) -> Result<HashMap<String, zbus::zvariant::OwnedValue>> {
+    ) -> Result<HashMap<String, HashMap<String, zbus::zvariant::OwnedValue>>> {
         let conn_proxy = zbus::blocking::Proxy::new(
             &self.connection,
             "org.freedesktop.NetworkManager",
@@ -115,7 +109,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             "org.freedesktop.NetworkManager.Settings.Connection",
         )?;
 
-        let settings: HashMap<String, zbus::zvariant::OwnedValue> =
+        let settings: HashMap<String, HashMap<String, zbus::zvariant::OwnedValue>> =
             conn_proxy.call("GetSettings", &())?;
         Ok(settings)
     }
@@ -128,14 +122,8 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
         for conn_path in connections {
             let settings = self.get_connection_settings(&conn_path)?;
-            let connection_section = match settings.get("connection") {
-                Some(v) => v.to_owned(),
-                None => continue,
-            };
-            let dict = match <zbus::zvariant::Value<'_> as Clone>::clone(&connection_section)
-                .downcast::<HashMap<String, zbus::zvariant::OwnedValue>>()
-            {
-                Some(d) => d,
+            let dict = match settings.get("connection") {
+                Some(v) => v,
                 None => continue,
             };
 
@@ -151,22 +139,20 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
     fn vpn_profile_from_settings(
         &self,
-        settings: &HashMap<String, zbus::zvariant::OwnedValue>,
+        settings: &HashMap<String, HashMap<String, zbus::zvariant::OwnedValue>>,
     ) -> Option<VpnProfile> {
-        let connection_section = settings.get("connection")?.to_owned();
-        let connection_dict = <zbus::zvariant::Value<'_> as Clone>::clone(&connection_section)
-            .downcast::<HashMap<String, zbus::zvariant::OwnedValue>>()?;
+        let connection_dict = settings.get("connection")?;
 
-        let conn_type = Self::extract_string_from_dict(&connection_dict, "type")?;
+        let conn_type = Self::extract_string_from_dict(connection_dict, "type")?;
         if conn_type != "vpn" {
             return None;
         }
 
-        let uuid = Self::extract_string_from_dict(&connection_dict, "uuid")?;
-        let id = Self::extract_string_from_dict(&connection_dict, "id")
+        let uuid = Self::extract_string_from_dict(connection_dict, "uuid")?;
+        let id = Self::extract_string_from_dict(connection_dict, "id")
             .unwrap_or_else(|| uuid.clone());
-        let interface_name = Self::extract_string_from_dict(&connection_dict, "interface-name");
-        let autoconnect = Self::extract_bool_from_dict(&connection_dict, "autoconnect")
+        let interface_name = Self::extract_string_from_dict(connection_dict, "interface-name");
+        let autoconnect = Self::extract_bool_from_dict(connection_dict, "autoconnect")
             .unwrap_or(false);
 
         let vpn_settings = Self::string_map_from_section(settings, "vpn");
@@ -1507,18 +1493,10 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         // Start from the full current settings map to preserve unrelated sections
         // (IPv4/IPv6, routes, DNS, permissions, proxy, etc.).
         let mut settings: HashMap<String, HashMap<String, Value>> = HashMap::new();
-        for (section_name, section_value) in &existing_settings {
-            let raw_value = section_value.to_owned();
-            let dict = match <zbus::zvariant::Value<'_> as Clone>::clone(&raw_value)
-                .downcast::<HashMap<String, zbus::zvariant::OwnedValue>>()
-            {
-                Some(d) => d,
-                None => continue,
-            };
-
+        for (section_name, dict) in &existing_settings {
             let mut section_map: HashMap<String, Value> = HashMap::new();
             for (k, v) in dict {
-                section_map.insert(k, <zbus::zvariant::Value<'_> as Clone>::clone(&v));
+                section_map.insert(k.clone(), <zbus::zvariant::Value<'_> as Clone>::clone(v));
             }
             settings.insert(section_name.clone(), section_map);
         }

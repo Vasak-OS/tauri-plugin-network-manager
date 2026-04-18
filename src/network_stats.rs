@@ -67,6 +67,11 @@ impl NetworkStatsTracker {
         })
     }
     
+    /// Get the current tracked interface name
+    pub fn get_interface(&self) -> &str {
+        &self.interface
+    }
+    
     /// Get bandwidth point for historical tracking
     pub fn get_bandwidth_point(&mut self) -> Result<BandwidthPoint> {
         let stats = self.get_stats()?;

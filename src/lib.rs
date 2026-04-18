@@ -316,37 +316,43 @@ impl<R: Runtime> NetworkManagerState<R> {
     pub fn get_network_stats(&self) -> Result<crate::models::NetworkStats, NetworkError> {
         let mut tracker = self.stats_tracker.write().map_err(|_| NetworkError::LockError)?;
         
-        // Initialize tracker if not already initialized
-        if tracker.is_none() {
-            // Get active interface from network manager
-            let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
-            if let Some(manager) = manager.as_ref() {
-                let network_state = manager.get_current_network_state()
-                    .map_err(|e| NetworkError::OperationError(e.to_string()))?;
-                
-                // Try to determine interface name from connection type
-                let interface = if network_state.connection_type == "WiFi" {
-                    // Try common WiFi interface names
-                    crate::network_stats::get_network_interfaces()
-                        .ok()
-                        .and_then(|interfaces| {
-                            interfaces.into_iter()
-                                .find(|i| i.starts_with("wl") || i.starts_with("wlan"))
-                        })
-                        .unwrap_or_else(|| "wlan0".to_string())
-                } else {
-                    // Try common ethernet interface names
-                    crate::network_stats::get_network_interfaces()
-                        .ok()
-                        .and_then(|interfaces| {
-                            interfaces.into_iter()
-                                .find(|i| i.starts_with("en") || i.starts_with("eth"))
-                        })
-                        .unwrap_or_else(|| "eth0".to_string())
-                };
-                
-                *tracker = crate::network_stats::NetworkStatsTracker::new(interface).ok();
+        // Get active interface from network manager
+        let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
+        let current_interface = if let Some(manager) = manager.as_ref() {
+            let network_state = manager.get_current_network_state()
+                .map_err(|e| NetworkError::OperationError(e.to_string()))?;
+            
+            // Determine interface name from connection type
+            if network_state.connection_type == "WiFi" {
+                // Try common WiFi interface names
+                crate::network_stats::get_network_interfaces()
+                    .ok()
+                    .and_then(|interfaces| {
+                        interfaces.into_iter()
+                            .find(|i| i.starts_with("wl") || i.starts_with("wlan"))
+                    })
+                    .unwrap_or_else(|| "wlan0".to_string())
+            } else {
+                // Try common ethernet interface names
+                crate::network_stats::get_network_interfaces()
+                    .ok()
+                    .and_then(|interfaces| {
+                        interfaces.into_iter()
+                            .find(|i| i.starts_with("en") || i.starts_with("eth"))
+                    })
+                    .unwrap_or_else(|| "eth0".to_string())
             }
+        } else {
+            return Err(NetworkError::NotInitialized);
+        };
+        drop(manager); // Release the read lock
+        
+        // Initialize or reinitialize tracker if interface changed or not initialized
+        let needs_reinit = tracker.is_none() || 
+            tracker.as_ref().map(|t| t.get_interface() != current_interface).unwrap_or(false);
+        
+        if needs_reinit {
+            *tracker = crate::network_stats::NetworkStatsTracker::new(current_interface).ok();
         }
         
         // Get stats from tracker
