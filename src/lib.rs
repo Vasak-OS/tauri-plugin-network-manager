@@ -446,9 +446,10 @@ pub fn init() -> TauriPlugin<tauri::Wry> {
         ])
         .setup(|app, _api| -> Result<(), Box<dyn std::error::Error>> {
             #[cfg(desktop)]
-            // Removed tokio runtime initialization
-            let rt = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
+            let _ = env_logger::builder()
+                .filter_level(log::LevelFilter::Info)
+                .try_init();
+            let rt = tokio::runtime::Builder::new_current_thread()
                 .build()?;
             let network_manager = rt.block_on(async { crate::desktop::init(&app, _api).await })?;
 

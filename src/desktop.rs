@@ -52,18 +52,18 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         dict: &HashMap<String, zbus::zvariant::OwnedValue>,
         key: &str,
     ) -> Option<String> {
-        let value = dict.get(key)?.to_owned();
-        <zbus::zvariant::Value<'_> as Clone>::clone(&value)
-            .downcast::<String>()
+        let value = dict.get(key)?;
+        let v: &zbus::zvariant::Value<'_> = value;
+        v.downcast_ref::<String>().ok()
     }
 
     fn extract_bool_from_dict(
         dict: &HashMap<String, zbus::zvariant::OwnedValue>,
         key: &str,
     ) -> Option<bool> {
-        let value = dict.get(key)?.to_owned();
-        <zbus::zvariant::Value<'_> as Clone>::clone(&value)
-            .downcast::<bool>()
+        let value = dict.get(key)?;
+        let v: &zbus::zvariant::Value<'_> = value;
+        v.downcast_ref::<bool>().ok()
     }
 
     fn string_map_from_section(
@@ -77,8 +77,8 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         };
 
         for (k, v) in section {
-            let value = <zbus::zvariant::Value<'_> as Clone>::clone(v);
-            if let Some(s) = value.downcast::<String>() {
+            let val: &zbus::zvariant::Value<'_> = v;
+            if let Ok(s) = val.downcast_ref::<String>() {
                 out.insert(k.clone(), s);
             }
         }
@@ -215,7 +215,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
         // If no active connections, return default
         match active_connections_variant.downcast_ref() {
-            Some(Value::Array(arr)) if !arr.is_empty() => {
+            Ok(Value::Array(arr)) if !arr.is_empty() => {
                 // Get the first active connection path
                 match arr[0] {
                     zbus::zvariant::Value::ObjectPath(ref path) => {
@@ -236,7 +236,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
                         // Get the first device (if available)
                         let device_path = match devices_variant.downcast_ref() {
-                            Some(Value::Array(device_arr)) if !device_arr.is_empty() => {
+                            Ok(Value::Array(device_arr)) if !device_arr.is_empty() => {
                                 match device_arr[0] {
                                     zbus::zvariant::Value::ObjectPath(ref dev_path) => {
                                         dev_path.clone()
@@ -270,13 +270,13 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                         )?;
 
                         let is_connected = match state_variant.downcast_ref() {
-                            Some(zbus::zvariant::Value::U32(state)) => *state == 2, // 2 = ACTIVATED
+                            Ok(zbus::zvariant::Value::U32(state)) => state == 2, // 2 = ACTIVATED
                             _ => false,
                         };
 
                         // Determine connection type
                         let connection_type_str = match connection_type.downcast_ref() {
-                            Some(zbus::zvariant::Value::U32(device_type)) => match device_type {
+                            Ok(zbus::zvariant::Value::U32(device_type)) => match device_type {
                                 1 => "Ethernet".to_string(),
                                 2 => "WiFi".to_string(),
                                 _ => "Unknown".to_string(),
@@ -305,7 +305,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                         )?;
 
                         network_info.mac_address = match hw_address_variant.downcast_ref() {
-                            Some(zbus::zvariant::Value::Str(s)) => s.to_string(),
+                            Ok(zbus::zvariant::Value::Str(s)) => s.to_string(),
                             _ => "00:00:00:00:00:00".to_string(),
                         };
 
@@ -326,13 +326,13 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                 "ActiveAccessPoint",
                             )?;
 
-                            if let Some(zbus::zvariant::Value::ObjectPath(ap_path)) =
+                            if let Ok(zbus::zvariant::Value::ObjectPath(ap_path)) =
                                 active_ap_path.downcast_ref()
                             {
                                 let _ap_proxy = zbus::blocking::Proxy::new(
                                     &self.connection,
                                     "org.freedesktop.NetworkManager",
-                                    ap_path,
+                                    &ap_path,
                                     "org.freedesktop.NetworkManager.AccessPoint",
                                 )?;
 
@@ -341,7 +341,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                 let ap_properties_proxy =
                                     zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
                                         .destination("org.freedesktop.NetworkManager")?
-                                        .path(ap_path)?
+                                        .path(ap_path.as_str())?
                                         .build()?;
 
                                 let ssid_variant = ap_properties_proxy.get(
@@ -352,21 +352,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                 )?;
 
                                 network_info.ssid = match ssid_variant.downcast_ref() {
-                                    Some(zbus::zvariant::Value::Array(ssid_bytes)) => {
-                                        // Convertir el array de bytes a una cadena UTF-8
-                                        let bytes: Vec<u8> = ssid_bytes
-                                            .iter()
-                                            .filter_map(|v| {
-                                                if let zbus::zvariant::Value::U8(b) = v {
-                                                    Some(*b)
-                                                } else {
-                                                    None
-                                                }
-                                            })
-                                            .collect();
-
-                                        String::from_utf8_lossy(&bytes).to_string()
-                                    }
+                                    Ok(v) => NetworkManagerHelpers::ssid_from_value(&v),
                                     _ => "Unknown".to_string(),
                                 };
                                 network_info.name = network_info.ssid.clone();
@@ -381,7 +367,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
                                 network_info.signal_strength = match strength_variant.downcast_ref()
                                 {
-                                    Some(zbus::zvariant::Value::U8(s)) => *s,
+                                    Ok(zbus::zvariant::Value::U8(s)) => s,
                                     _ => 0,
                                 };
 
@@ -405,7 +391,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                         )?;
 
                         // Retrieve IP address if available
-                        if let Some(zbus::zvariant::Value::ObjectPath(config_path)) =
+                        if let Ok(zbus::zvariant::Value::ObjectPath(config_path)) =
                             ip4_config_path.downcast_ref()
                         {
                             // Crear un proxy de propiedades para la configuración IP
@@ -422,7 +408,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                 "Addresses",
                             )?;
 
-                            if let Some(Value::Array(addr_arr)) = addresses_variant.downcast_ref() {
+                            if let Ok(Value::Array(addr_arr)) = addresses_variant.downcast_ref() {
                                 if let Some(Value::Array(ip_tuple)) = addr_arr.first() {
                                     if ip_tuple.len() >= 1 {
                                         if let Value::U32(ip_int) = &ip_tuple[0] {
@@ -455,10 +441,9 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         let mut networks = Vec::new();
         let current_network = self.get_current_network_state()?;
 
-        if let Some(zbus::zvariant::Value::Array(devices)) = devices_variant.downcast_ref() {
+        if let Ok(zbus::zvariant::Value::Array(devices)) = devices_variant.downcast_ref() {
             // Iterate over devices in the array
-            let device_values = devices.get();
-            for device in device_values {
+            for device in devices.iter() {
                 if let zbus::zvariant::Value::ObjectPath(ref device_path) = device {
                     // Create a device proxy
                     let device_props =
@@ -476,10 +461,10 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                     )?;
 
                     // DeviceType 2 is WiFi
-                    if let Some(zbus::zvariant::Value::U32(device_type)) =
+                    if let Ok(zbus::zvariant::Value::U32(device_type)) =
                         device_type_variant.downcast_ref()
                     {
-                        if device_type == &2u32 {
+                        if device_type == 2u32 {
                             let mac_address = match device_props
                                 .get(
                                     InterfaceName::from_static_str_unchecked(
@@ -489,7 +474,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                 )?
                                 .downcast_ref()
                             {
-                                Some(zbus::zvariant::Value::Str(s)) => s.to_string(),
+                                Ok(zbus::zvariant::Value::Str(s)) => s.to_string(),
                                 _ => "00:00:00:00:00:00".to_string(),
                             };
 
@@ -507,12 +492,11 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                 "AccessPoints",
                             )?;
 
-                            if let Some(zbus::zvariant::Value::Array(aps)) =
+                            if let Ok(zbus::zvariant::Value::Array(aps)) =
                                 access_points_variant.downcast_ref()
                             {
                                 // Iterate over access points
-                                let ap_values = aps.get();
-                                for ap in ap_values {
+                                for ap in aps.iter() {
                                     if let zbus::zvariant::Value::ObjectPath(ref ap_path) = ap {
                                         let ap_props = zbus::blocking::fdo::PropertiesProxy::builder(
                                             &self.connection,
@@ -530,21 +514,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                         )?;
 
                                         let ssid = match ssid_variant.downcast_ref() {
-                                            Some(zbus::zvariant::Value::Array(ssid_bytes)) => {
-                                                // Convertir el array de bytes a una cadena UTF-8
-                                                let bytes: Vec<u8> = ssid_bytes
-                                                    .iter()
-                                                    .filter_map(|v| {
-                                                        if let zbus::zvariant::Value::U8(b) = v {
-                                                            Some(*b)
-                                                        } else {
-                                                            None
-                                                        }
-                                                    })
-                                                    .collect();
-
-                                                String::from_utf8_lossy(&bytes).to_string()
-                                            }
+                                            Ok(v) => NetworkManagerHelpers::ssid_from_value(&v),
                                             _ => "Unknown".to_string(),
                                         };
 
@@ -557,7 +527,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                         )?;
 
                                         let strength = match strength_variant.downcast_ref() {
-                                            Some(zbus::zvariant::Value::U8(s)) => *s,
+                                            Ok(zbus::zvariant::Value::U8(s)) => s,
                                             _ => 0,
                                         };
 
@@ -610,8 +580,8 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         let mut wifi_device_found = false;
         let mut requested_scan = false;
 
-        if let Some(zbus::zvariant::Value::Array(devices)) = devices_variant.downcast_ref() {
-            for device in devices.get() {
+        if let Ok(zbus::zvariant::Value::Array(devices)) = devices_variant.downcast_ref() {
+            for device in devices.iter() {
                 if let zbus::zvariant::Value::ObjectPath(ref device_path) = device {
                     let device_props = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
                         .destination("org.freedesktop.NetworkManager")?
@@ -623,8 +593,8 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                         "DeviceType",
                     )?;
 
-                    if let Some(zbus::zvariant::Value::U32(device_type)) = device_type_variant.downcast_ref() {
-                        if *device_type == 2 {
+                    if let Ok(zbus::zvariant::Value::U32(device_type)) = device_type_variant.downcast_ref() {
+                        if device_type == 2 {
                             wifi_device_found = true;
 
                             let wireless_proxy = zbus::blocking::Proxy::new(
@@ -808,9 +778,8 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             "Devices",
         )?;
 
-        if let Some(zbus::zvariant::Value::Array(devices)) = devices_variant.downcast_ref() {
-            let device_values = devices.get();
-            for device in device_values {
+        if let Ok(zbus::zvariant::Value::Array(devices)) = devices_variant.downcast_ref() {
+            for device in devices.iter() {
                 if let zbus::zvariant::Value::ObjectPath(ref device_path) = device {
                      let device_props = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
                             .destination("org.freedesktop.NetworkManager")?
@@ -822,8 +791,8 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                         "DeviceType",
                     )?;
                     
-                    if let Some(zbus::zvariant::Value::U32(device_type)) = device_type_variant.downcast_ref() {
-                        if device_type == &2u32 { // 2 = WiFi
+                    if let Ok(zbus::zvariant::Value::U32(device_type)) = device_type_variant.downcast_ref() {
+                        if device_type == 2u32 { // 2 = WiFi
                             return Ok(true);
                         }
                     }
@@ -910,7 +879,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
         // Convertir el valor a un vector de ObjectPath
         let active_connections = match active_connections_variant.downcast_ref() {
-            Some(zbus::zvariant::Value::Array(arr)) => arr
+            Ok(zbus::zvariant::Value::Array(arr)) => arr
                 .iter()
                 .filter_map(|v| match v {
                     zbus::zvariant::Value::ObjectPath(path) => {
@@ -961,25 +930,20 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
             // Verificar si es una conexión WiFi
             if let Some(connection) = settings.get("connection") {
-                let connection_value = connection.to_owned();
-                let connection_dict =
-                    match <zbus::zvariant::Value<'_> as Clone>::clone(&connection_value)
-                        .downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>(
-                    ) {
-                        Some(dict) => dict,
-                        _ => continue,
-                    };
+                let connection_dict = match connection.downcast_ref::<Value>()
+                    .and_then(|v| v.downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>())
+                {
+                    Ok(dict) => dict,
+                    _ => continue,
+                };
 
                 // Verificar el tipo de conexión
                 if let Some(conn_type) = connection_dict.get("type") {
-                    let conn_type_value = conn_type.to_owned();
-                    let conn_type_str =
-                        match <zbus::zvariant::Value<'_> as Clone>::clone(&conn_type_value)
-                            .downcast::<String>()
-                        {
-                            Some(s) => s,
-                            _ => continue,
-                        };
+                    let v_type: &zbus::zvariant::Value<'_> = conn_type;
+                    let conn_type_str = match v_type.downcast_ref::<String>() {
+                        Ok(s) => s,
+                        _ => continue,
+                    };
 
                     // Si es una conexión WiFi, extraer la información
                     if conn_type_str == "802-11-wireless" {
@@ -988,41 +952,33 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
                         // Obtener el nombre de la conexión
                         if let Some(id) = connection_dict.get("id") {
-                            let id_value = id.to_owned();
-                            if let Some(name) =
-                                <zbus::zvariant::Value<'_> as Clone>::clone(&id_value)
-                                    .downcast::<String>()
-                            {
+                            let v_id: &zbus::zvariant::Value<'_> = id;
+                            if let Ok(name) = v_id.downcast_ref::<String>() {
                                 network_info.name = name;
                             }
                         }
 
                         // Obtener el SSID
                         if let Some(wireless) = settings.get("802-11-wireless") {
-                            let wireless_value = wireless.to_owned();
-                            let wireless_dict = match <zbus::zvariant::Value<'_> as Clone>::clone(&wireless_value).downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>() {
-                                Some(dict) => dict,
+                            let wireless_dict = match wireless.downcast_ref::<Value>()
+                                .and_then(|v| v.downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>())
+                            {
+                                Ok(dict) => dict,
                                 _ => continue,
                             };
 
                             if let Some(ssid) = wireless_dict.get("ssid") {
-                                let ssid_value = ssid.to_owned();
-                                if let Some(ssid_bytes) =
-                                    <zbus::zvariant::Value<'_> as Clone>::clone(&ssid_value)
-                                        .downcast::<Vec<u8>>()
-                                {
-                                    if let Ok(ssid_str) = String::from_utf8(ssid_bytes) {
-                                        network_info.ssid = ssid_str;
-                                    }
-                                }
+                                let v_ssid: &zbus::zvariant::Value<'_> = ssid;
+                                network_info.ssid = NetworkManagerHelpers::ssid_from_value(v_ssid);
                             }
                         }
 
                         // Determinar el tipo de seguridad
                         if let Some(security) = settings.get("802-11-wireless-security") {
-                            let security_value = security.to_owned();
-                            let security_dict = match <zbus::zvariant::Value<'_> as Clone>::clone(&security_value).downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>() {
-                                Some(dict) => dict,
+                            let security_dict = match security.downcast_ref::<Value>()
+                                .and_then(|v| v.downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>())
+                            {
+                                Ok(dict) => dict,
                                 _ => {
                                     network_info.security_type = WiFiSecurityType::None;
                                     saved_networks.push(network_info);
@@ -1031,11 +987,8 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                             };
 
                             if let Some(key_mgmt) = security_dict.get("key-mgmt") {
-                                let key_mgmt_value = key_mgmt.to_owned();
-                                if let Some(key_mgmt_str) =
-                                    <zbus::zvariant::Value<'_> as Clone>::clone(&key_mgmt_value)
-                                        .downcast::<String>()
-                                {
+                                let v_km: &zbus::zvariant::Value<'_> = key_mgmt;
+                                if let Ok(key_mgmt_str) = v_km.downcast_ref::<String>() {
                                     match key_mgmt_str.as_str() {
                                         "none" => {
                                             network_info.security_type = WiFiSecurityType::None
@@ -1094,48 +1047,38 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
             // Verificar si es una conexión WiFi
             if let Some(connection) = settings.get("connection") {
-                let connection_value = connection.to_owned();
-                let connection_dict =
-                    match <zbus::zvariant::Value<'_> as Clone>::clone(&connection_value)
-                        .downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>(
-                    ) {
-                        Some(dict) => dict,
-                        _ => continue,
-                    };
+                let connection_dict = match connection.downcast_ref::<Value>()
+                    .and_then(|v| v.downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>())
+                {
+                    Ok(dict) => dict,
+                    _ => continue,
+                };
 
                 // Verificar el tipo de conexión
                 if let Some(conn_type) = connection_dict.get("type") {
-                    let conn_type_value = conn_type.to_owned();
-                    let conn_type_str =
-                        match <zbus::zvariant::Value<'_> as Clone>::clone(&conn_type_value)
-                            .downcast::<String>()
-                        {
-                            Some(s) => s,
-                            _ => continue,
-                        };
+                    let v_type: &zbus::zvariant::Value<'_> = conn_type;
+                    let conn_type_str = match v_type.downcast_ref::<String>() {
+                        Ok(s) => s,
+                        _ => continue,
+                    };
 
                     // Si es una conexión WiFi, verificar el SSID
                     if conn_type_str == "802-11-wireless" {
                         if let Some(wireless) = settings.get("802-11-wireless") {
-                            let wireless_value = wireless.to_owned();
-                            let wireless_dict = match <zbus::zvariant::Value<'_> as Clone>::clone(&wireless_value).downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>() {
-                                Some(dict) => dict,
+                            let wireless_dict = match wireless.downcast_ref::<Value>()
+                                .and_then(|v| v.downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>())
+                            {
+                                Ok(dict) => dict,
                                 _ => continue,
                             };
 
                             if let Some(ssid_value) = wireless_dict.get("ssid") {
-                                let ssid_owned = ssid_value.to_owned();
-                                if let Some(ssid_bytes) =
-                                    <zbus::zvariant::Value<'_> as Clone>::clone(&ssid_owned)
-                                        .downcast::<Vec<u8>>()
-                                {
-                                    if let Ok(conn_ssid_str) = String::from_utf8(ssid_bytes) {
-                                        // Si el SSID coincide, eliminar la conexión
-                                        if conn_ssid_str == ssid {
-                                            conn_proxy.call::<_, _, ()>("Delete", &())?;
-                                            return Ok(true);
-                                        }
-                                    }
+                                let v_ssid: &zbus::zvariant::Value<'_> = ssid_value;
+                                let conn_ssid_str = NetworkManagerHelpers::ssid_from_value(v_ssid);
+                                // Si el SSID coincide, eliminar la conexión
+                                if conn_ssid_str == ssid {
+                                    conn_proxy.call::<_, _, ()>("Delete", &())?;
+                                    return Ok(true);
                                 }
                             }
                         }
@@ -1173,7 +1116,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
         let mut status = VpnStatus::default();
 
-        if let Some(zbus::zvariant::Value::Array(arr)) = active_connections_variant.downcast_ref() {
+        if let Ok(zbus::zvariant::Value::Array(arr)) = active_connections_variant.downcast_ref() {
             for value in arr.iter() {
                 let active_path = match value {
                     zbus::zvariant::Value::ObjectPath(path) => path,
@@ -1193,7 +1136,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                 )?;
 
                 let conn_type = match conn_type_variant.downcast_ref() {
-                    Some(zbus::zvariant::Value::Str(v)) => v.to_string(),
+                    Ok(zbus::zvariant::Value::Str(v)) => v.to_string(),
                     _ => continue,
                 };
 
@@ -1208,7 +1151,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                     "State",
                 )?;
                 let state = match state_variant.downcast_ref() {
-                    Some(zbus::zvariant::Value::U32(v)) => *v,
+                    Ok(zbus::zvariant::Value::U32(v)) => v,
                     _ => 0,
                 };
 
@@ -1227,12 +1170,12 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
                 status.state = Self::vpn_state_from_active_state(state);
                 status.active_profile_name = match id_variant.downcast_ref() {
-                    Some(zbus::zvariant::Value::Str(v)) => Some(v.to_string()),
+                    Ok(zbus::zvariant::Value::Str(v)) => Some(v.to_string()),
                     _ => None,
                 };
                 status.active_profile_id = status.active_profile_name.clone();
                 status.active_profile_uuid = match uuid_variant.downcast_ref() {
-                    Some(zbus::zvariant::Value::Str(v)) => Some(v.to_string()),
+                    Ok(zbus::zvariant::Value::Str(v)) => Some(v.to_string()),
                     _ => None,
                 };
 
@@ -1243,7 +1186,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                     "Ip4Config",
                 )?;
 
-                if let Some(zbus::zvariant::Value::ObjectPath(ip4_path)) =
+                if let Ok(zbus::zvariant::Value::ObjectPath(ip4_path)) =
                     ip4_config_variant.downcast_ref()
                 {
                     if ip4_path.as_str() != "/" {
@@ -1259,7 +1202,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                             "Gateway",
                         ) {
                             status.gateway = match gateway_variant.downcast_ref() {
-                                Some(zbus::zvariant::Value::Str(v)) => Some(v.to_string()),
+                                Ok(zbus::zvariant::Value::Str(v)) => Some(v.to_string()),
                                 _ => None,
                             };
                         }
@@ -1316,7 +1259,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
         let mut target_active_connection: Option<zbus::zvariant::OwnedObjectPath> = None;
 
-        if let Some(zbus::zvariant::Value::Array(arr)) = active_connections_variant.downcast_ref() {
+        if let Ok(zbus::zvariant::Value::Array(arr)) = active_connections_variant.downcast_ref() {
             for value in arr.iter() {
                 let active_path = match value {
                     zbus::zvariant::Value::ObjectPath(path) => {
@@ -1337,7 +1280,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                     "Type",
                 )?;
                 let conn_type = match conn_type_variant.downcast_ref() {
-                    Some(zbus::zvariant::Value::Str(v)) => v.to_string(),
+                    Ok(zbus::zvariant::Value::Str(v)) => v.to_string(),
                     _ => continue,
                 };
 
@@ -1353,7 +1296,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                         "Uuid",
                     )?;
                     let active_uuid = match uuid_variant.downcast_ref() {
-                        Some(zbus::zvariant::Value::Str(v)) => v.to_string(),
+                        Ok(zbus::zvariant::Value::Str(v)) => v.to_string(),
                         _ => continue,
                     };
 
@@ -1496,7 +1439,9 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         for (section_name, dict) in &existing_settings {
             let mut section_map: HashMap<String, Value> = HashMap::new();
             for (k, v) in dict {
-                section_map.insert(k.clone(), <zbus::zvariant::Value<'_> as Clone>::clone(v));
+                if let Ok(val) = v.downcast_ref::<Value>() {
+                    section_map.insert(k.clone(), val);
+                }
             }
             settings.insert(section_name.clone(), section_map);
         }

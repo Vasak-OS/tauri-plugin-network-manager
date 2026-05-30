@@ -47,18 +47,6 @@ pub enum NetworkError {
     
     #[error("Failed to acquire lock on network manager")]
     LockError,
-    
-    #[error("Feature not implemented")]
-    NotImplemented,
-    
-    #[error("Task execution failed")]
-    TaskError,
-    
-    #[error("Permission denied")]
-    PermissionDenied,
-    
-    #[error("Failed to create runtime")]
-    RuntimeError,
 
     #[error("VPN profile not found: {0}")]
     VpnProfileNotFound(String),
