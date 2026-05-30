@@ -7,7 +7,12 @@ use crate::nm_constants::*;
 pub struct NetworkManagerHelpers;
 
 impl NetworkManagerHelpers {
-    /// Detect WiFi security type from access point properties
+    /// Detect WiFi security type from access point properties.
+    ///
+    /// Uses the following NM D-Bus properties in order of reliability:
+    /// 1. `KeyMgmt` — string property (most accurate, but may not be available on older NM)
+    /// 2. `WpaFlags` / `RsnFlags` — checks KEY_MGMT bits for PSK, 802.1X, SAE
+    /// 3. `Flags` — fallback: if no WPA/RSN flags but privacy bit set → WEP
     pub fn detect_security_type(
         ap_props: &zbus::blocking::fdo::PropertiesProxy,
     ) -> Result<WiFiSecurityType> {
@@ -28,6 +33,7 @@ impl NetworkManagerHelpers {
         let wpa = if let Ok(Value::U32(w)) = wpa_flags_variant.downcast_ref() { w } else { 0 };
         let rsn = if let Ok(Value::U32(r)) = rsn_flags_variant.downcast_ref() { r } else { 0 };
 
+        // 1. Use KeyMgmt string property if available (most reliable)
         if let Ok(key_mgmt_variant) = ap_props.get(
             InterfaceName::from_static_str_unchecked(IFACE_NM_ACCESS_POINT),
             "KeyMgmt",
@@ -43,21 +49,47 @@ impl NetworkManagerHelpers {
             }
         }
 
-        Ok(if flags & SECURITY_FLAG_NONE != 0 {
-            WiFiSecurityType::None
-        } else if flags & SECURITY_FLAG_WEP != 0 {
-            WiFiSecurityType::Wep
-        } else if wpa != 0 && rsn == 0 {
-            WiFiSecurityType::WpaPsk
-        } else if rsn != 0 {
-            if wpa != 0 {
-                WiFiSecurityType::Wpa2Psk
+        // 2. Check for open network
+        if flags == AP_FLAGS_NONE {
+            return Ok(WiFiSecurityType::None);
+        }
+
+        // 3. Check key management bits in security flags
+        if rsn & SEC_FLAGS_KEY_MGMT_802_1X != 0 || wpa & SEC_FLAGS_KEY_MGMT_802_1X != 0 {
+            return Ok(WiFiSecurityType::WpaEap);
+        }
+
+        if rsn & SEC_FLAGS_KEY_MGMT_SAE != 0 {
+            return Ok(WiFiSecurityType::Wpa3Psk);
+        }
+
+        if rsn & SEC_FLAGS_KEY_MGMT_PSK != 0 {
+            return Ok(WiFiSecurityType::Wpa2Psk);
+        }
+
+        if wpa & SEC_FLAGS_KEY_MGMT_PSK != 0 {
+            return Ok(WiFiSecurityType::WpaPsk);
+        }
+
+        // 4. Fallback: presence of encryption flags without key management bits
+        if rsn != 0 {
+            return if wpa != 0 {
+                Ok(WiFiSecurityType::Wpa2Psk)
             } else {
-                WiFiSecurityType::Wpa3Psk
-            }
-        } else {
-            WiFiSecurityType::None
-        })
+                Ok(WiFiSecurityType::Wpa3Psk)
+            };
+        }
+
+        if wpa != 0 {
+            return Ok(WiFiSecurityType::WpaPsk);
+        }
+
+        // 5. Privacy flag set but no WPA/RSN → likely WEP
+        if flags & AP_FLAGS_PRIVACY != 0 {
+            return Ok(WiFiSecurityType::Wep);
+        }
+
+        Ok(WiFiSecurityType::None)
     }
 
     pub fn has_internet_connectivity(

@@ -570,6 +570,49 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         Ok(networks)
     }
 
+    /// Find the first wireless device path from NetworkManager
+    fn find_wireless_device_path(&self) -> Result<zbus::zvariant::OwnedObjectPath> {
+        let devices_variant = self.proxy.get(
+            InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager"),
+            "Devices",
+        )?;
+
+        if let Ok(zbus::zvariant::Value::Array(devices)) = devices_variant.downcast_ref() {
+            for device in devices.iter() {
+                if let zbus::zvariant::Value::ObjectPath(device_path) = device {
+                    let device_props =
+                        zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
+                            .destination("org.freedesktop.NetworkManager")?
+                            .path(device_path.as_str())?
+                            .build()?;
+
+                    let device_type_variant = device_props.get(
+                        InterfaceName::from_static_str_unchecked(
+                            "org.freedesktop.NetworkManager.Device",
+                        ),
+                        "DeviceType",
+                    )?;
+
+                    if let Ok(zbus::zvariant::Value::U32(device_type)) =
+                        device_type_variant.downcast_ref()
+                    {
+                        if device_type == 2u32 {
+                            let owned = zbus::zvariant::OwnedObjectPath::try_from(
+                                device_path.as_str(),
+                            )
+                            .unwrap();
+                            return Ok(owned);
+                        }
+                    }
+                }
+            }
+        }
+
+        Err(crate::error::NetworkError::OperationError(
+            "No suitable wireless device found".to_string(),
+        ))
+    }
+
     /// Request an explicit WiFi scan through NetworkManager and return a fresh list.
     pub fn rescan_wifi(&self) -> Result<Vec<NetworkInfo>> {
         let devices_variant = self.proxy.get(
@@ -647,7 +690,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         connection_settings.insert("connection".to_string(), connection);
 
         // Set WiFi settings
-        wifi_settings.insert("ssid".to_string(), Value::from(config.ssid.clone()));
+        wifi_settings.insert("ssid".to_string(), Value::from(config.ssid.as_bytes().to_vec()));
         wifi_settings.insert("mode".to_string(), Value::from("infrastructure"));
 
         // Set security settings based on security type
@@ -678,7 +721,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             }
             WiFiSecurityType::Wpa2Psk => {
                 security_settings.insert("key-mgmt".to_string(), Value::from("wpa-psk"));
-                security_settings.insert("proto".to_string(), Value::from("rsn"));
+                security_settings.insert("proto".to_string(), Value::from(vec!["rsn"]));
                 if let Some(password) = config.password.clone() {
                     security_settings.insert("psk".to_string(), Value::from(password));
                 }
@@ -692,10 +735,12 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         }
 
         connection_settings.insert("802-11-wireless".to_string(), wifi_settings);
-        connection_settings.insert("802-11-wireless-security".to_string(), security_settings);
+        if !security_settings.is_empty() {
+            connection_settings.insert("802-11-wireless-security".to_string(), security_settings);
+        }
 
         // Log constructed settings for debugging
-        log::trace!("connection_settings: {:#?}", connection_settings);
+        log::debug!("connection_settings: {:#?}", connection_settings);
 
         // Crear un proxy para NetworkManager
         let nm_proxy = zbus::blocking::Proxy::new(
@@ -705,8 +750,9 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             "org.freedesktop.NetworkManager",
         )?;
 
-        // Llamar al método AddAndActivateConnection (trace result)
-        let call_result: zbus::Result<(zbus::zvariant::OwnedObjectPath, zbus::zvariant::OwnedObjectPath)> = nm_proxy.call("AddAndActivateConnection", &(connection_settings, "/", "/"));
+        // Llamar al método AddAndActivateConnection con autoselección de NM
+        let any_path = zbus::zvariant::OwnedObjectPath::try_from("/").unwrap();
+        let call_result: zbus::Result<(zbus::zvariant::OwnedObjectPath, zbus::zvariant::OwnedObjectPath)> = nm_proxy.call("AddAndActivateConnection", &(connection_settings, &any_path, &any_path));
 
         match call_result {
             Ok((conn_path, active_path)) => {
@@ -808,49 +854,38 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         let connection_clone = self.connection.clone();
         let app_handle = self.app.clone();
 
-        // Crear un hilo para escuchar los cambios de red
+        // Usar un proxy directamente sobre la conexión existente en lugar de abrir una nueva
         std::thread::spawn(move || {
-            match zbus::blocking::Connection::system() {
-                Ok(conn) => {
-                    // Proxy para el objeto raíz, interfaz DBus.Properties
-                    if let Ok(proxy) = zbus::blocking::Proxy::new(
-                        &conn,
-                        "org.freedesktop.NetworkManager",
-                        "/org/freedesktop/NetworkManager",
-                        "org.freedesktop.NetworkManager",
-                    ) {
-                        if let Ok(mut signal) = proxy.receive_signal("StateChanged") {
-                            while let Some(_msg) = signal.next() {
-                                let network_manager = VSKNetworkManager {
-                                    connection: connection_clone.clone(),
-                                    proxy: zbus::blocking::fdo::PropertiesProxy::builder(
-                                        &connection_clone,
-                                    )
-                                    .destination("org.freedesktop.NetworkManager")
-                                    .unwrap()
-                                    .path("/org/freedesktop/NetworkManager")
-                                    .unwrap()
-                                    .build()
-                                    .unwrap(),
-                                    app: app_handle.clone(),
-                                };
+            if let Ok(proxy) = zbus::blocking::Proxy::new(
+                &connection_clone,
+                "org.freedesktop.NetworkManager",
+                "/org/freedesktop/NetworkManager",
+                "org.freedesktop.NetworkManager",
+            ) {
+                if let Ok(mut signal) = proxy.receive_signal("StateChanged") {
+                    while let Some(_msg) = signal.next() {
+                        let network_manager = VSKNetworkManager {
+                            connection: connection_clone.clone(),
+                            proxy: zbus::blocking::fdo::PropertiesProxy::builder(
+                                &connection_clone,
+                            )
+                            .destination("org.freedesktop.NetworkManager")
+                            .unwrap()
+                            .path("/org/freedesktop/NetworkManager")
+                            .unwrap()
+                            .build()
+                            .unwrap(),
+                            app: app_handle.clone(),
+                        };
 
-                                if let Ok(network_info) =
-                                    network_manager.get_current_network_state()
-                                {
-                                    if tx.send(network_info).is_err() {
-                                        break;
-                                    }
-                                }
+                        if let Ok(network_info) =
+                            network_manager.get_current_network_state()
+                        {
+                            if tx.send(network_info).is_err() {
+                                break;
                             }
                         }
                     }
-                }
-                Err(e) => {
-                    eprintln!(
-                        "Error al conectar con D-Bus para escuchar cambios de red: {:?}",
-                        e
-                    );
                 }
             }
         });
@@ -1234,8 +1269,9 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             "org.freedesktop.NetworkManager",
         )?;
 
+        let any_path = zbus::zvariant::OwnedObjectPath::try_from("/").unwrap();
         let activate_result: zbus::Result<zbus::zvariant::OwnedObjectPath> =
-            nm_proxy.call("ActivateConnection", &(conn_path.as_str(), "/", "/"));
+            nm_proxy.call("ActivateConnection", &(&conn_path, &any_path, &any_path));
 
         match activate_result {
             Ok(_) => Ok(()),
