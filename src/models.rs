@@ -51,8 +51,10 @@ pub struct WiFiNetwork {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WiFiConnectionConfig {
     pub ssid: String,
+    #[serde(default)]
     pub password: Option<String>,
     pub security_type: WiFiSecurityType,
+    #[serde(default)]
     pub username: Option<String>,
 }
 
@@ -128,31 +130,52 @@ impl Default for VpnStatus {
 pub struct VpnCreateConfig {
     pub id: String,
     pub vpn_type: VpnType,
+    #[serde(default)]
     pub autoconnect: Option<bool>,
+    #[serde(default)]
     pub username: Option<String>,
+    #[serde(default)]
     pub password: Option<String>,
+    #[serde(default)]
     pub gateway: Option<String>,
+    #[serde(default)]
     pub ca_cert_path: Option<String>,
+    #[serde(default)]
     pub user_cert_path: Option<String>,
+    #[serde(default)]
     pub private_key_path: Option<String>,
+    #[serde(default)]
     pub private_key_password: Option<String>,
+    #[serde(default)]
     pub settings: Option<std::collections::HashMap<String, String>>,
+    #[serde(default)]
     pub secrets: Option<std::collections::HashMap<String, String>>,
 }
 
 #[derive(Deserialize, Clone)]
 pub struct VpnUpdateConfig {
     pub uuid: String,
+    #[serde(default)]
     pub id: Option<String>,
+    #[serde(default)]
     pub autoconnect: Option<bool>,
+    #[serde(default)]
     pub username: Option<String>,
+    #[serde(default)]
     pub password: Option<String>,
+    #[serde(default)]
     pub gateway: Option<String>,
+    #[serde(default)]
     pub ca_cert_path: Option<String>,
+    #[serde(default)]
     pub user_cert_path: Option<String>,
+    #[serde(default)]
     pub private_key_path: Option<String>,
+    #[serde(default)]
     pub private_key_password: Option<String>,
+    #[serde(default)]
     pub settings: Option<std::collections::HashMap<String, String>>,
+    #[serde(default)]
     pub secrets: Option<std::collections::HashMap<String, String>>,
 }
 
