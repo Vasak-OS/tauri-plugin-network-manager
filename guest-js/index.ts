@@ -102,26 +102,26 @@ export interface VpnProfile {
   id: string;
   uuid: string;
   vpn_type: VpnType;
-  interface_name?: string;
+  interface_name: string | null;
   autoconnect: boolean;
   editable: boolean;
-  last_error?: string;
+  last_error: string | null;
 }
 
 export interface VpnStatus {
   state: VpnConnectionState;
-  active_profile_id?: string;
-  active_profile_uuid?: string;
-  active_profile_name?: string;
-  ip_address?: string;
-  gateway?: string;
-  since_unix_ms?: number;
+  active_profile_id: string | null;
+  active_profile_uuid: string | null;
+  active_profile_name: string | null;
+  ip_address: string | null;
+  gateway: string | null;
+  since_unix_ms: number | null;
 }
 
 export interface VpnEventPayload {
   status: VpnStatus;
-  profile?: VpnProfile;
-  reason?: string;
+  profile: VpnProfile | null;
+  reason: string | null;
 }
 
 export interface VpnCreateInput {
