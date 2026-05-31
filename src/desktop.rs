@@ -192,7 +192,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
     }
 
     /// Create a new VSKNetworkManager instance
-    pub async fn new(app: AppHandle<R>) -> Result<Self> {
+    pub fn new(app: AppHandle<R>) -> Result<Self> {
         let connection = zbus::blocking::Connection::system()?;
         let proxy = zbus::blocking::fdo::PropertiesProxy::builder(&connection)
             .destination("org.freedesktop.NetworkManager")?
@@ -430,29 +430,69 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         }
     }
 
+    /// Lightweight: get the SSID of the currently connected access point (if any).
+    /// Avoids the ~10 D-Bus calls that `get_current_network_state()` makes.
+    fn connected_wifi_ssid(&self) -> Result<Option<String>> {
+        let devices = self.wireless_device_paths()?;
+        for device_path in &devices {
+            let wireless_props = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
+                .destination("org.freedesktop.NetworkManager")?
+                .path(device_path.as_str())?
+                .build()?;
+
+            let active_ap = wireless_props.get(
+                InterfaceName::from_static_str_unchecked(
+                    "org.freedesktop.NetworkManager.Device.Wireless",
+                ),
+                "ActiveAccessPoint",
+            )?;
+
+            if let Ok(zbus::zvariant::Value::ObjectPath(ap_path)) = active_ap.downcast_ref() {
+                if ap_path.as_str() == "/" {
+                    continue;
+                }
+                let ap_props = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
+                    .destination("org.freedesktop.NetworkManager")?
+                    .path(ap_path.as_str())?
+                    .build()?;
+
+                let ssid_variant = ap_props.get(
+                    InterfaceName::from_static_str_unchecked(
+                        "org.freedesktop.NetworkManager.AccessPoint",
+                    ),
+                    "Ssid",
+                )?;
+
+                if let Ok(v) = ssid_variant.downcast_ref() {
+                    let ssid = NetworkManagerHelpers::ssid_from_value(&v);
+                    if !ssid.is_empty() && ssid != "Unknown" {
+                        return Ok(Some(ssid));
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+
     /// List available WiFi networks
     pub fn list_wifi_networks(&self) -> Result<Vec<NetworkInfo>> {
-        // Get all devices
         let devices_variant = self.proxy.get(
             InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager"),
             "Devices",
         )?;
 
         let mut networks = Vec::new();
-        let current_network = self.get_current_network_state()?;
+        let connected_ssid = self.connected_wifi_ssid()?;
 
         if let Ok(zbus::zvariant::Value::Array(devices)) = devices_variant.downcast_ref() {
-            // Iterate over devices in the array
             for device in devices.iter() {
                 if let zbus::zvariant::Value::ObjectPath(ref device_path) = device {
-                    // Create a device proxy
                     let device_props =
                         zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
                             .destination("org.freedesktop.NetworkManager")?
                             .path(device_path)?
                             .build()?;
 
-                    // Check if this is a wireless device
                     let device_type_variant = device_props.get(
                         InterfaceName::from_static_str_unchecked(
                             "org.freedesktop.NetworkManager.Device",
@@ -460,7 +500,6 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                         "DeviceType",
                     )?;
 
-                    // DeviceType 2 is WiFi
                     if let Ok(zbus::zvariant::Value::U32(device_type)) =
                         device_type_variant.downcast_ref()
                     {
@@ -478,7 +517,6 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                 _ => "00:00:00:00:00:00".to_string(),
                             };
 
-                            // This is a WiFi device, get its access points
                             let wireless_props =
                                 zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
                                     .destination("org.freedesktop.NetworkManager")?
@@ -495,7 +533,6 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                             if let Ok(zbus::zvariant::Value::Array(aps)) =
                                 access_points_variant.downcast_ref()
                             {
-                                // Iterate over access points
                                 for ap in aps.iter() {
                                     if let zbus::zvariant::Value::ObjectPath(ref ap_path) = ap {
                                         let ap_props = zbus::blocking::fdo::PropertiesProxy::builder(
@@ -505,7 +542,6 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                         .path(ap_path)?
                                         .build()?;
 
-                                        // Obtener SSID
                                         let ssid_variant = ap_props.get(
                                             InterfaceName::from_static_str_unchecked(
                                                 "org.freedesktop.NetworkManager.AccessPoint",
@@ -518,7 +554,6 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                             _ => "Unknown".to_string(),
                                         };
 
-                                        // Obtener fuerza de señal
                                         let strength_variant = ap_props.get(
                                             InterfaceName::from_static_str_unchecked(
                                                 "org.freedesktop.NetworkManager.AccessPoint",
@@ -531,21 +566,16 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                             _ => 0,
                                         };
 
-                                        // Determine security type using helper
                                         let security_type = NetworkManagerHelpers::detect_security_type(&ap_props)?;
 
-                                        let is_connected = current_network.ssid == ssid;
+                                        let is_connected = connected_ssid.as_deref() == Some(ssid.as_str());
 
                                         let network_info = NetworkInfo {
                                             name: ssid.clone(),
                                             ssid,
                                             connection_type: "wifi".to_string(),
                                             icon: Self::get_wifi_icon(strength),
-                                            ip_address: if is_connected {
-                                                current_network.ip_address.clone()
-                                            } else {
-                                                "0.0.0.0".to_string()
-                                            },
+                                            ip_address: "0.0.0.0".to_string(),
                                             mac_address: mac_address.clone(),
                                             signal_strength: strength,
                                             security_type,
@@ -564,19 +594,18 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             }
         }
 
-        // Sort networks by signal strength (descending)
         networks.sort_by(|a, b| b.signal_strength.cmp(&a.signal_strength));
-
         Ok(networks)
     }
 
-    /// Find the first wireless device path from NetworkManager
-    fn find_wireless_device_path(&self) -> Result<zbus::zvariant::OwnedObjectPath> {
+    /// Collect paths of all wireless (type=2) devices from NetworkManager
+    fn wireless_device_paths(&self) -> Result<Vec<zbus::zvariant::OwnedObjectPath>> {
         let devices_variant = self.proxy.get(
             InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager"),
             "Devices",
         )?;
 
+        let mut paths = Vec::new();
         if let Ok(zbus::zvariant::Value::Array(devices)) = devices_variant.downcast_ref() {
             for device in devices.iter() {
                 if let zbus::zvariant::Value::ObjectPath(device_path) = device {
@@ -601,75 +630,42 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                 device_path.as_str(),
                             )
                             .unwrap();
-                            return Ok(owned);
+                            paths.push(owned);
                         }
                     }
                 }
             }
         }
-
-        Err(crate::error::NetworkError::OperationError(
-            "No suitable wireless device found".to_string(),
-        ))
+        Ok(paths)
     }
 
     /// Request an explicit WiFi scan through NetworkManager and return a fresh list.
     pub fn rescan_wifi(&self) -> Result<Vec<NetworkInfo>> {
-        let devices_variant = self.proxy.get(
-            InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager"),
-            "Devices",
-        )?;
+        let devices = self.wireless_device_paths()?;
 
-        let mut wifi_device_found = false;
-        let mut requested_scan = false;
-
-        if let Ok(zbus::zvariant::Value::Array(devices)) = devices_variant.downcast_ref() {
-            for device in devices.iter() {
-                if let zbus::zvariant::Value::ObjectPath(ref device_path) = device {
-                    let device_props = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
-                        .destination("org.freedesktop.NetworkManager")?
-                        .path(device_path)?
-                        .build()?;
-
-                    let device_type_variant = device_props.get(
-                        InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager.Device"),
-                        "DeviceType",
-                    )?;
-
-                    if let Ok(zbus::zvariant::Value::U32(device_type)) = device_type_variant.downcast_ref() {
-                        if device_type == 2 {
-                            wifi_device_found = true;
-
-                            let wireless_proxy = zbus::blocking::Proxy::new(
-                                &self.connection,
-                                "org.freedesktop.NetworkManager",
-                                device_path.as_str(),
-                                "org.freedesktop.NetworkManager.Device.Wireless",
-                            )?;
-
-                            let options: HashMap<String, zbus::zvariant::OwnedValue> = HashMap::new();
-                            if wireless_proxy.call::<_, _, ()>("RequestScan", &(options,)).is_ok() {
-                                requested_scan = true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if !wifi_device_found {
+        if devices.is_empty() {
             return Err(crate::error::NetworkError::OperationError(
                 "No wireless device available for scanning".to_string(),
             ));
         }
 
-        if !requested_scan {
-            return Err(crate::error::NetworkError::OperationError(
-                "Failed to request WiFi scan on available wireless devices".to_string(),
-            ));
+        for device_path in &devices {
+            let wireless_proxy = zbus::blocking::Proxy::new(
+                &self.connection,
+                "org.freedesktop.NetworkManager",
+                device_path.as_str(),
+                "org.freedesktop.NetworkManager.Device.Wireless",
+            )?;
+
+            let options: HashMap<String, zbus::zvariant::OwnedValue> = HashMap::new();
+            if wireless_proxy.call::<_, _, ()>("RequestScan", &(options,)).is_ok() {
+                return self.list_wifi_networks();
+            }
         }
 
-        self.list_wifi_networks()
+        Err(crate::error::NetworkError::OperationError(
+            "Failed to request WiFi scan on available wireless devices".to_string(),
+        ))
     }
 
     /// Connect to a WiFi network
@@ -818,34 +814,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
     /// Check if wireless device is available
     pub fn is_wireless_available(&self) -> Result<bool> {
-         // Get all devices
-        let devices_variant = self.proxy.get(
-            InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager"),
-            "Devices",
-        )?;
-
-        if let Ok(zbus::zvariant::Value::Array(devices)) = devices_variant.downcast_ref() {
-            for device in devices.iter() {
-                if let zbus::zvariant::Value::ObjectPath(ref device_path) = device {
-                     let device_props = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
-                            .destination("org.freedesktop.NetworkManager")?
-                            .path(device_path)?
-                            .build()?;
-                    
-                    let device_type_variant = device_props.get(
-                        InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager.Device"),
-                        "DeviceType",
-                    )?;
-                    
-                    if let Ok(zbus::zvariant::Value::U32(device_type)) = device_type_variant.downcast_ref() {
-                        if device_type == 2u32 { // 2 = WiFi
-                            return Ok(true);
-                        }
-                    }
-                }
-            }
-        }
-        Ok(false)
+        Ok(!self.wireless_device_paths()?.is_empty())
     }
 
     /// Listen for network changes
@@ -854,7 +823,6 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         let connection_clone = self.connection.clone();
         let app_handle = self.app.clone();
 
-        // Usar un proxy directamente sobre la conexión existente en lugar de abrir una nueva
         std::thread::spawn(move || {
             if let Ok(proxy) = zbus::blocking::Proxy::new(
                 &connection_clone,
@@ -863,18 +831,20 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                 "org.freedesktop.NetworkManager",
             ) {
                 if let Ok(mut signal) = proxy.receive_signal("StateChanged") {
+                    let proxy_props = zbus::blocking::fdo::PropertiesProxy::builder(
+                        &connection_clone,
+                    )
+                    .destination("org.freedesktop.NetworkManager")
+                    .unwrap()
+                    .path("/org/freedesktop/NetworkManager")
+                    .unwrap()
+                    .build()
+                    .unwrap();
+
                     while let Some(_msg) = signal.next() {
                         let network_manager = VSKNetworkManager {
                             connection: connection_clone.clone(),
-                            proxy: zbus::blocking::fdo::PropertiesProxy::builder(
-                                &connection_clone,
-                            )
-                            .destination("org.freedesktop.NetworkManager")
-                            .unwrap()
-                            .path("/org/freedesktop/NetworkManager")
-                            .unwrap()
-                            .build()
-                            .unwrap(),
+                            proxy: proxy_props.clone(),
                             app: app_handle.clone(),
                         };
 
@@ -895,10 +865,6 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
     /// Disconnect from the current WiFi network
     pub fn disconnect_from_wifi(&self) -> Result<()> {
-        // Obtener el estado actual de la red para identificar la conexión activa
-        let _current_state = self.get_current_network_state()?;
-
-        // Crear un proxy para NetworkManager
         let nm_proxy = zbus::blocking::Proxy::new(
             &self.connection,
             "org.freedesktop.NetworkManager",
@@ -927,7 +893,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         };
 
         if !active_connections.is_empty() {
-            nm_proxy.call::<_, _, ()>("DeactivateConnection", &(active_connections[0].as_str()))?;
+            nm_proxy.call::<_, _, ()>("DeactivateConnection", &(&active_connections[0],))?;
             Ok(())
         } else {
             Ok(())
@@ -1602,9 +1568,9 @@ mod tests {
 }
 
 /// Initialize the network manager plugin
-pub async fn init(
+pub fn init(
     app: &AppHandle<tauri::Wry>,
     _api: PluginApi<tauri::Wry, ()>,
 ) -> Result<VSKNetworkManager<'static, tauri::Wry>> {
-    Ok(VSKNetworkManager::new(app.clone()).await?)
+    Ok(VSKNetworkManager::new(app.clone())?)
 }

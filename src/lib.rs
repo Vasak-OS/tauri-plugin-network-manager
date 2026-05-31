@@ -449,9 +449,7 @@ pub fn init() -> TauriPlugin<tauri::Wry> {
             let _ = env_logger::builder()
                 .filter_level(log::LevelFilter::Info)
                 .try_init();
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .build()?;
-            let network_manager = rt.block_on(async { crate::desktop::init(&app, _api).await })?;
+            let network_manager = crate::desktop::init(&app, _api)?;
 
             app.manage(NetworkManagerState::<tauri::Wry>::new(Some(
                 network_manager,
