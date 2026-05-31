@@ -1,329 +1,680 @@
 # Tauri Network Manager Plugin
 
-Linux-first Tauri plugin to manage network state, Wi-Fi and VPN through NetworkManager over D-Bus.
+[![Crates.io](https://img.shields.io/crates/v/tauri-plugin-network-manager)](https://crates.io/crates/tauri-plugin-network-manager)
+[![License](https://img.shields.io/badge/license-GPLv3-blue)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.77.2+-orange)](Cargo.toml)
+[![Tauri](https://img.shields.io/badge/tauri-2-purple)](https://tauri.app)
+
+> Linux-first Tauri plugin to manage network state, Wi-Fi, and VPN through **NetworkManager** over **D-Bus**.
+
+---
+
+## Table of Contents
+
+- [Features](#features)
+- [Architecture](#architecture)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Permissions](#permissions)
+- [Quick Start](#quick-start)
+- [API Reference](#api-reference)
+- [TypeScript Usage](#typescript-usage)
+- [Event System](#event-system)
+- [Error Handling](#error-handling)
+- [Caching](#caching)
+- [Types](#types)
+- [Package Exports](#package-exports)
+- [Testing & Build](#testing--build)
+- [Contributing](#contributing)
+
+---
 
 ## Features
 
-- Read current network state
-- List available Wi-Fi networks
-- Connect and disconnect Wi-Fi
+### Wi-Fi
+- Scan & list nearby access points with signal strength and security detection
+- Connect to open / WEP / WPA-PSK / WPA2-PSK / WPA3-PSK / WPA-EAP networks
+- Disconnect from current Wi-Fi
 - List and delete saved Wi-Fi connections
-- Enable or disable networking and wireless
-- Check wireless adapter availability
-- Read network stats and available interfaces
-- List VPN profiles
-- Read current VPN status
-- Connect and disconnect VPN profiles
-- Create, update and delete VPN profiles
-- Listen to network and VPN change events (`network-changed`, `vpn-changed`, `vpn-connected`, `vpn-disconnected`, `vpn-failed`)
+- Request explicit scans
+
+### VPN
+- List, create, update, delete VPN profiles (OpenVPN, WireGuard, L2TP, PPTP, SSTP, IKEv2, FortiSSL, OpenConnect, Generic)
+- Connect / disconnect VPN by UUID
+- Read current VPN status, gateway, IP configuration
+
+### Network State
+- Read current active network (Ethernet / Wi-Fi) — SSID, IP, MAC, signal, security
+- Enable / disable wireless and global networking
+- Check wireless hardware availability
+
+### Monitoring
+- Bandwidth stats (download/upload speed, total bytes, uptime)
+- Real-time events via Tauri's event system:
+  - `network-changed` — network state transition
+  - `vpn-changed`, `vpn-connected`, `vpn-disconnected`, `vpn-failed`
+
+---
+
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph Frontend["Tauri Frontend (TypeScript)"]
+        TS["guest-js/index.ts<br/>invoke() / listen()"]
+    end
+
+    subgraph IPC["Tauri Bridge"]
+        IPC_BRIDGE["Plugin IPC"]
+    end
+
+    subgraph Rust["Rust Plugin (tauri-plugin-network-manager)"]
+        direction TB
+        CMDS["commands.rs<br/>19 #[tauri::command]"]
+        DESKTOP["desktop.rs<br/>D-Bus logic"]
+        HELPERS["nm_helpers.rs<br/>security detection"]
+        STATS["network_stats.rs<br/>bandwidth tracker"]
+        LIB["lib.rs<br/>state mgmt · caching<br/>event emitter"]
+        ERR["error.rs<br/>typed errors"]
+        MODELS["models.rs<br/>data structures"]
+
+        CMDS --> DESKTOP
+        DESKTOP --> HELPERS
+        DESKTOP --> STATS
+        LIB --> CMDS
+        DESKTOP --> ERR
+        DESKTOP --> MODELS
+    end
+
+    subgraph NM["NetworkManager (D-Bus System Bus)"]
+        NM_MAIN["org.freedesktop.NetworkManager<br/>AddAndActivateConnection<br/>ActivateConnection<br/>DeactivateConnection"]
+        NM_SETTINGS["org.freedesktop.NetworkManager.Settings<br/>AddConnection · Update · Delete<br/>ListConnections"]
+        NM_DEVICE["org.freedesktop.NetworkManager.Device<br/>DeviceType · HwAddress · Ip4Config"]
+        NM_WIFI["org.freedesktop.NetworkManager.Device.Wireless<br/>AccessPoints · ActiveAccessPoint<br/>RequestScan"]
+        NM_AP["org.freedesktop.NetworkManager.AccessPoint<br/>Ssid · Strength · Flags<br/>WpaFlags · RsnFlags · KeyMgmt"]
+        NM_ACTIVE["org.freedesktop.NetworkManager.Connection.Active<br/>State · Type · Devices · Uuid"]
+    end
+
+    Frontend <--> IPC
+    IPC <--> Rust
+    DESKTOP -- "zbus 4 (blocking)" --> NM_MAIN
+    DESKTOP --> NM_SETTINGS
+    DESKTOP --> NM_DEVICE
+    DESKTOP --> NM_WIFI
+    DESKTOP --> NM_AP
+    DESKTOP --> NM_ACTIVE
+```
+
+### Key modules
+
+| Module | Responsibility |
+|---|---|
+| `lib.rs` | Tauri plugin entry point, state management (`Arc<RwLock>`), network change event emitter with 250 ms debounce |
+| `desktop.rs` | All D-Bus calls via zbus 4: network state, Wi-Fi scan/connect, VPN CRUD, signal listening |
+| `commands.rs` | 19 `#[tauri::command]` functions bridging IPC to `desktop.rs` |
+| `nm_helpers.rs` | Security type detection (`KeyMgmt` / `WpaFlags` / `RsnFlags`), SSID byte→string conversion, connectivity check |
+| `network_stats.rs` | Bandwidth tracker reading `/sys/class/net/<iface>/statistics` |
+| `error.rs` | Typed error enum with `thiserror`, D-Bus error mapping |
+| `models.rs` | All data structures: `NetworkInfo`, `WiFiConnectionConfig`, `VpnProfile`, etc. |
+
+---
 
 ## Requirements
 
-- Linux with NetworkManager running
-- Tauri 2
-- Rust 1.77.2+
+- **Linux** with **NetworkManager** running on D-Bus system bus
+- **Tauri 2** project
+- **Rust 1.77.2+**
+- System D-Bus libraries (`libdbus-1-dev` or equivalent)
+
+---
 
 ## Installation
 
-### Rust dependency
-
-Add the plugin crate to your Tauri app:
+### Cargo
 
 ```toml
 [dependencies]
 tauri-plugin-network-manager = { git = "https://github.com/Vasak-OS/tauri-plugin-network-manager" }
 ```
 
-Register the plugin in your Tauri builder.
-
-### NPM package
-
-Install the JS guest bindings:
+### NPM (guest bindings)
 
 ```bash
 bun add @vasakgroup/plugin-network-manager
+# or
+npm install @vasakgroup/plugin-network-manager
+# or
+pnpm add @vasakgroup/plugin-network-manager
 ```
 
-## Permissions (Tauri capabilities)
+### Register the plugin
 
-The default permission set includes:
+```rust
+// src-tauri/src/lib.rs
+fn main() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_network_manager::init())
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
+```
 
-- `network-manager:allow-get-network-state`
-- `network-manager:allow-list-wifi-networks`
-- `network-manager:allow-rescan-wifi`
-- `network-manager:allow-connect-to-wifi`
-- `network-manager:allow-disconnect-from-wifi`
-- `network-manager:allow-get-saved-wifi-networks`
-- `network-manager:allow-delete-wifi-connection`
-- `network-manager:allow-toggle-network-state`
-- `network-manager:allow-get-wireless-enabled`
-- `network-manager:allow-set-wireless-enabled`
-- `network-manager:allow-is-wireless-available`
-- `network-manager:allow-list-vpn-profiles`
-- `network-manager:allow-get-vpn-status`
+---
 
-Mutating VPN operations are intentionally excluded from default permissions.
+## Permissions
 
-To enable VPN management operations, add the dedicated permission set:
+By default the plugin allows **read + Wi-Fi connect/disconnect** operations.
+**VPN mutations** are opt-in.
 
-- `network-manager:vpn_management`
+### Default permission set
 
-This set includes:
+```jsonc
+// src-tauri/capabilities/default.json
+{
+  "identifier": "default",
+  "windows": ["main"],
+  "permissions": [
+    "network-manager:default"
+  ]
+}
+```
 
-- `network-manager:allow-connect-vpn`
-- `network-manager:allow-disconnect-vpn`
-- `network-manager:allow-create-vpn-profile`
-- `network-manager:allow-update-vpn-profile`
-- `network-manager:allow-delete-vpn-profile`
+The default set includes:
+- `get-network-state`, `list-wifi-networks`, `rescan-wifi`
+- `connect-to-wifi`, `disconnect-from-wifi`
+- `get-saved-wifi-networks`, `delete-wifi-connection`
+- `toggle-network-state`, `get-wireless-enabled`, `set-wireless-enabled`
+- `is-wireless-available`, `list-vpn-profiles`, `get-vpn-status`
 
-## Types exposed in NPM
+### VPN management permission
 
-The package exports these TypeScript types:
+```jsonc
+{
+  "permissions": [
+    "network-manager:vpn_management",
+    // or individually:
+    "network-manager:allow-connect-vpn",
+    "network-manager:allow-disconnect-vpn",
+    "network-manager:allow-create-vpn-profile",
+    "network-manager:allow-update-vpn-profile",
+    "network-manager:allow-delete-vpn-profile"
+  ]
+}
+```
 
-- `NetworkInfo`
-- `NetworkStats`
-- `WiFiSecurityType`
-- `WiFiConnectionConfig` (Rust wire format)
-- `ConnectToWifiInput` (frontend-friendly format)
-- `ListWifiNetworksOptions`
-- `VpnType`
-- `VpnConnectionState`
-- `VpnProfile`
-- `VpnStatus`
-- `VpnEventPayload`
-- `VpnCreateInput`
-- `VpnUpdateInput`
-- `NetworkManagerErrorCode`
-- `NetworkManagerError`
+---
 
-### Security type values
+## Quick Start
 
-`WiFiSecurityType` values are:
+### Wi-Fi — scan and connect
 
-- `none`
-- `wep`
-- `wpa-psk`
-- `wpa-eap`
-- `wpa2-psk`
-- `wpa3-psk`
-
-### VPN type values
-
-`VpnType` values are:
-
-- `open-vpn`
-- `wire-guard`
-- `l2tp`
-- `pptp`
-- `sstp`
-- `ikev2`
-- `fortisslvpn`
-- `open-connect`
-- `generic`
-
-## API reference
-
-### State and scan
-
-- `getCurrentNetworkState(): Promise<NetworkInfo>`
-- `listWifiNetworks(options?: ListWifiNetworksOptions): Promise<NetworkInfo[]>`
-- `rescanWifi(): Promise<NetworkInfo[]>`
-- `getSavedWifiNetworks(): Promise<NetworkInfo[]>`
-
-### Wi-Fi connection management
-
-- `connectToWifi(config: ConnectToWifiInput | WiFiConnectionConfig): Promise<void>`
-- `disconnectFromWifi(): Promise<void>`
-- `deleteWifiConnection(ssid: string): Promise<void>`
-
-### VPN profile and connection management
-
-- `listVpnProfiles(): Promise<VpnProfile[]>`
-- `getVpnStatus(): Promise<VpnStatus>`
-- `connectVpn(uuid: string): Promise<void>`
-- `disconnectVpn(uuid?: string): Promise<void>`
-- `createVpnProfile(config: VpnCreateInput): Promise<VpnProfile>`
-- `updateVpnProfile(config: VpnUpdateInput): Promise<VpnProfile>`
-- `deleteVpnProfile(uuid: string): Promise<void>`
-
-### Radio and networking toggles
-
-- `toggleNetwork(enabled: boolean): Promise<void>`
-- `getWirelessEnabled(): Promise<boolean>`
-- `setWirelessEnabled(enabled: boolean): Promise<void>`
-- `isWirelessAvailable(): Promise<boolean>`
-
-### Stats
-
-- `getNetworkStats(): Promise<NetworkStats>`
-- `getNetworkInterfaces(): Promise<string[]>`
-
-## Usage examples (TypeScript)
-
-### Wi-Fi
-
-```ts
+```typescript
 import {
-  connectToWifi,
-  deleteWifiConnection,
-  disconnectFromWifi,
-  getCurrentNetworkState,
-  getSavedWifiNetworks,
   listWifiNetworks,
+  connectToWifi,
+  disconnectFromWifi,
   WiFiSecurityType,
 } from '@vasakgroup/plugin-network-manager';
 
-async function wifiFlow() {
-  const state = await getCurrentNetworkState();
-  console.log('Current network:', state);
+// 1. Scan available networks
+const networks = await listWifiNetworks();
+console.log(networks.map(n => `${n.ssid} (${n.signal_strength}%)`));
 
-  const available = await listWifiNetworks();
-  console.log('Available Wi-Fi:', available.map((n) => n.ssid));
+// 2. Connect to a WPA2-PSK network
+await connectToWifi({
+  ssid: 'MyNetwork',
+  password: 'supersecret',
+  securityType: WiFiSecurityType.WPA2_PSK,
+});
 
-  await connectToWifi({
-    ssid: 'OfficeWiFi',
-    password: 'secret-password',
-    securityType: WiFiSecurityType.WPA2_PSK,
-  });
-
-  const saved = await getSavedWifiNetworks();
-  console.log('Saved Wi-Fi:', saved.map((n) => n.ssid));
-
-  await disconnectFromWifi();
-  await deleteWifiConnection('OldNetwork');
-}
-
-wifiFlow().catch(console.error);
+// 3. Disconnect
+await disconnectFromWifi();
 ```
 
-### VPN
+### VPN — create, connect, and listen
 
-```ts
+```typescript
 import {
-  connectVpn,
   createVpnProfile,
-  disconnectVpn,
+  connectVpn,
   getVpnStatus,
-  listVpnProfiles,
-  updateVpnProfile,
+  disconnectVpn,
   deleteVpnProfile,
 } from '@vasakgroup/plugin-network-manager';
-
-async function vpnFlow() {
-  const profile = await createVpnProfile({
-    id: 'Office VPN',
-    vpn_type: 'wire-guard',
-    autoconnect: false,
-    settings: {
-      mtu: '1420',
-      remote: 'vpn.example.com:51820',
-    },
-    secrets: {
-      private_key: '***',
-    },
-  });
-
-  console.log('Created profile:', profile);
-
-  const profiles = await listVpnProfiles();
-  console.log('Profiles:', profiles.map((p) => `${p.id} (${p.uuid})`));
-
-  await connectVpn(profile.uuid);
-  console.log('VPN status after connect:', await getVpnStatus());
-
-  const updated = await updateVpnProfile({
-    uuid: profile.uuid,
-    autoconnect: true,
-  });
-  console.log('Updated profile:', updated);
-
-  await disconnectVpn(profile.uuid);
-  await deleteVpnProfile(profile.uuid);
-}
-
-vpnFlow().catch(console.error);
-```
-
-### Listening to VPN events
-
-```ts
 import { listen } from '@tauri-apps/api/event';
 import type { VpnEventPayload } from '@vasakgroup/plugin-network-manager';
 
-const unlistenChanged = await listen<VpnEventPayload>('vpn-changed', (event) => {
-  console.log('VPN changed:', event.payload.status.state);
+// Listen for VPN state changes
+const unlisten = await listen<VpnEventPayload>('vpn-changed', (e) => {
+  console.log('VPN state:', e.payload.status.state);
 });
 
-const unlistenConnected = await listen<VpnEventPayload>('vpn-connected', (event) => {
-  console.log('VPN connected:', event.payload.profile?.id);
+// Create and connect
+const profile = await createVpnProfile({
+  id: 'Office VPN',
+  vpn_type: 'wire-guard',
+  settings: { endpoint: 'vpn.example.com:51820' },
+  secrets: { private_key: '***' },
 });
 
-const unlistenFailed = await listen<VpnEventPayload>('vpn-failed', (event) => {
-  console.error('VPN failed:', event.payload.reason);
-});
+await connectVpn(profile.uuid);
+console.log(await getVpnStatus());
 
-// call unlistenChanged(), unlistenConnected(), unlistenFailed() when no longer needed
+// Cleanup
+await disconnectVpn(profile.uuid);
+await deleteVpnProfile(profile.uuid);
+unlisten();
 ```
 
-## Typed errors
+### Network monitoring
 
-All exported async functions throw a typed `NetworkManagerError` with a `code` in case of invoke failure.
+```typescript
+import { getNetworkStats } from '@vasakgroup/plugin-network-manager';
 
-Common Wi-Fi and generic codes:
+const stats = await getNetworkStats();
+console.log({
+  download: `${stats.download_speed} B/s`,
+  upload: `${stats.upload_speed} B/s`,
+  totalDown: `${(stats.total_downloaded / 1e6).toFixed(1)} MB`,
+  uptime: `${stats.connection_duration}s`,
+});
+```
 
-- `NOT_INITIALIZED`
-- `NO_CONNECTION`
-- `PERMISSION_DENIED`
-- `UNSUPPORTED_SECURITY`
-- `CONNECTION_FAILED`
-- `NETWORK_NOT_FOUND`
-- `OPERATION_FAILED`
+---
 
-VPN-specific codes:
+## API Reference
 
-- `VPN_PROFILE_NOT_FOUND`
-- `VPN_ALREADY_CONNECTED`
-- `VPN_AUTH_FAILED`
-- `VPN_INVALID_CONFIG`
-- `VPN_ACTIVATION_FAILED`
-- `VPN_PLUGIN_UNAVAILABLE`
-- `VPN_NOT_ACTIVE`
+### `getCurrentNetworkState(): Promise<NetworkInfo>`
 
-Fallback code:
+Returns the currently active network connection info, or a default if disconnected.
 
-- `UNKNOWN`
+### `listWifiNetworks(options?: ListWifiNetworksOptions): Promise<NetworkInfo[]>`
 
-## Package exports and types
+Scans and returns all visible access points, deduplicated by SSID, sorted by signal strength.
 
-The package is published with ESM + CJS bundles and declaration files:
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `forceRefresh` | `boolean` | `false` | Bypass in-memory cache |
+| `ttlMs` | `number` | `3000` | Cache TTL in milliseconds (250–30000) |
 
-- `main`: `./dist-js/index.cjs`
-- `module`: `./dist-js/index.js`
-- `types`: `./dist-js/index.d.ts`
-- `exports.types`: `./dist-js/index.d.ts`
-- `exports.import`: `./dist-js/index.js`
-- `exports.require`: `./dist-js/index.cjs`
+### `rescanWifi(): Promise<NetworkInfo[]>`
 
-## Notes
+Triggers a `RequestScan` D-Bus call on all wireless devices and returns fresh results.
 
-- `connectToWifi` accepts both formats:
-  - frontend-friendly: `{ securityType: ... }`
-  - Rust wire-format: `{ security_type: ... }`
-- The wrapper maps frontend input to the command payload expected by Rust.
-- `listWifiNetworks` supports cache control:
-  - `forceRefresh`: bypasses cache
-  - `ttlMs`: cache TTL in milliseconds
+### `connectToWifi(config: ConnectToWifiInput | WiFiConnectionConfig): Promise<void>`
 
-## Testing and build
+Accepts both camelCase (frontend-friendly) and snake_case (Rust wire) formats.
 
-Build package:
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `ssid` | `string` | yes | Network SSID |
+| `password` | `string` | no | PSK / password |
+| `securityType` / `security_type` | `WiFiSecurityType` | yes | See [WiFiSecurityType](#wifisecuritytype) |
+| `username` | `string` | no | WPA-EAP identity |
+
+**Supported security types:**
+
+| Value | D-Bus `key-mgmt` | Notes |
+|---|---|---|
+| `None` | — | Open network |
+| `Wep` | `none` | Static WEP with `wep-key0` |
+| `WpaPsk` | `wpa-psk` | WPA1-PSK |
+| `Wpa2Psk` | `wpa-psk` + `proto=["rsn"]` | WPA2-PSK |
+| `Wpa3Psk` | `sae` | WPA3-SAE |
+| `WpaEap` | `wpa-eap` | Enterprise WPA-EAP |
+
+### `disconnectFromWifi(): Promise<void>`
+
+Deactivates the active Wi-Fi connection.
+
+### `getSavedWifiNetworks(): Promise<NetworkInfo[]>`
+
+Returns saved Wi-Fi profiles (known networks) from NM settings, with SSID and detected security type.
+
+### `deleteWifiConnection(ssid: string): Promise<void>`
+
+Deletes the first saved connection matching the given SSID.
+
+### `toggleNetwork(enabled: boolean): Promise<boolean>`
+
+Enables or disables all networking. Returns the new state.
+
+### `getWirelessEnabled(): Promise<boolean>`
+
+Returns whether Wi-Fi radio is enabled.
+
+### `setWirelessEnabled(enabled: boolean): Promise<void>`
+
+Enables or disables Wi-Fi radio.
+
+### `isWirelessAvailable(): Promise<boolean>`
+
+Returns `true` if at least one Wi-Fi adapter is present.
+
+### `listVpnProfiles(): Promise<VpnProfile[]>`
+
+Returns all VPN profiles sorted by ID.
+
+### `getVpnStatus(): Promise<VpnStatus>`
+
+Returns the current active VPN state, profile info, gateway, and IP.
+
+### `connectVpn(uuid: string): Promise<void>`
+
+Activates a VPN by UUID. Throws `VpnAlreadyConnected` if already connected to the same profile.
+
+### `disconnectVpn(uuid?: string): Promise<void>`
+
+Deactivates a VPN. If `uuid` is omitted, deactivates the currently active VPN (`VpnNotActive` if none).
+
+### `createVpnProfile(config: VpnCreateInput): Promise<VpnProfile>`
+
+Creates a new VPN profile in NM settings. Requires `vpn_management` permission.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | `string` | yes | Profile display name |
+| `vpn_type` | `VpnType` | yes | See [VpnType](#vpntype) |
+| `autoconnect` | `boolean` | no | Auto-connect on boot |
+| `username` | `string` | no | VPN username |
+| `gateway` | `string` | no | Remote gateway address |
+| `ca_cert_path` | `string` | no | CA certificate path |
+| `user_cert_path` | `string` | no | User certificate path |
+| `private_key_path` | `string` | no | Private key path |
+| `private_key_password` | `string` | no | Private key passphrase |
+| `settings` | `Record<string, string>` | no | Custom VPN settings |
+| `secrets` | `Record<string, string>` | no | Custom VPN secrets (e.g. `psk`, `private_key`) |
+
+### `updateVpnProfile(config: VpnUpdateInput): Promise<VpnProfile>`
+
+Updates an existing VPN profile. All fields except `uuid` are optional.
+
+| Field | Type | Description |
+|---|---|---|
+| `uuid` | `string` | Profile UUID to update (required) |
+| `id` | `string` | New display name |
+| `autoconnect` | `boolean` | New auto-connect preference |
+| `username` | `string` | New username |
+| `gateway` | `string` | New remote address |
+| `ca_cert_path` | `string` | New CA cert path |
+| `user_cert_path` | `string` | New user cert path |
+| `private_key_path` | `string` | New private key path |
+| `private_key_password` | `string` | New passphrase |
+| `settings` | `Record<string, string>` | Merged into existing settings |
+| `secrets` | `Record<string, string>` | Merged into existing secrets |
+
+### `deleteVpnProfile(uuid: string): Promise<void>`
+
+Deletes a VPN profile by UUID.
+
+### `getNetworkStats(): Promise<NetworkStats>`
+
+Returns bandwidth statistics for the active interface.
+
+```typescript
+interface NetworkStats {
+  download_speed: number;    // bytes/sec
+  upload_speed: number;      // bytes/sec
+  total_downloaded: number;  // bytes
+  total_uploaded: number;    // bytes
+  connection_duration: number; // seconds
+  interface: string;         // e.g. "wlan0"
+}
+```
+
+### `getNetworkInterfaces(): Promise<string[]>`
+
+Returns all non-loopback network interface names.
+
+---
+
+## Event System
+
+The plugin emits Tauri events when network state changes, with a 250 ms debounce window to coalesce rapid transitions.
+
+### Events
+
+| Event | Payload | When |
+|---|---|---|
+| `network-changed` | `NetworkInfo` | Any network state transition |
+| `vpn-changed` | `VpnEventPayload` | VPN state transition |
+| `vpn-connected` | `VpnEventPayload` | Transition to `Connected` |
+| `vpn-disconnected` | `VpnEventPayload` | Transition to `Disconnected` |
+| `vpn-failed` | `VpnEventPayload` | Transition to `Failed` |
+
+### Example
+
+```typescript
+import { listen } from '@tauri-apps/api/event';
+import type { NetworkInfo, VpnEventPayload } from '@vasakgroup/plugin-network-manager';
+
+// Network changes
+const unlistenNet = await listen<NetworkInfo>('network-changed', (event) => {
+  const n = event.payload;
+  const status = n.is_connected ? `connected to ${n.ssid}` : 'disconnected';
+  console.log(`[${n.connection_type}] ${status} (${n.ip_address})`);
+});
+
+// VPN failures
+const unlistenFail = await listen<VpnEventPayload>('vpn-failed', (event) => {
+  console.error(`VPN failed: ${event.payload.reason}`);
+});
+
+// Cleanup when leaving component
+// unlistenNet();
+// unlistenFail();
+```
+
+---
+
+## Error Handling
+
+All commands throw a typed `NetworkManagerError` with a `code` property:
+
+```typescript
+import { connectToWifi, NetworkManagerErrorCode } from '@vasakgroup/plugin-network-manager';
+
+try {
+  await connectToWifi({ ssid: '...', password: '...', securityType: 'wpa2-psk' });
+} catch (e) {
+  if (e.code === NetworkManagerErrorCode.CONNECTION_FAILED) {
+    showToast('Connection failed. Check password.');
+  } else if (e.code === NetworkManagerErrorCode.UNSUPPORTED_SECURITY) {
+    showToast('This security type is not supported.');
+  } else {
+    showToast(`Unexpected error: ${e.message}`);
+  }
+}
+```
+
+### Error codes
+
+| Code | Meaning |
+|---|---|
+| `NOT_INITIALIZED` | Plugin not initialized |
+| `NO_CONNECTION` | No active network |
+| `PERMISSION_DENIED` | Capability not granted |
+| `UNSUPPORTED_SECURITY` | Security type not implemented |
+| `CONNECTION_FAILED` | D-Bus connection call failed |
+| `NETWORK_NOT_FOUND` | SSID not in saved networks |
+| `OPERATION_FAILED` | Generic failure |
+| `VPN_PROFILE_NOT_FOUND` | UUID not in settings |
+| `VPN_ALREADY_CONNECTED` | Already connected to that profile |
+| `VPN_AUTH_FAILED` | Secret/authentication error |
+| `VPN_INVALID_CONFIG` | Bad profile parameters |
+| `VPN_ACTIVATION_FAILED` | ActivateConnection D-Bus error |
+| `VPN_PLUGIN_UNAVAILABLE` | NM plugin not found |
+| `VPN_NOT_ACTIVE` | No active VPN to disconnect |
+| `UNKNOWN` | Fallback |
+
+---
+
+## Caching
+
+Wi-Fi scan results are cached in-memory for **3 seconds** by default to avoid redundant D-Bus calls.
+
+```typescript
+// Bypass cache
+const fresh = await listWifiNetworks({ forceRefresh: true });
+
+// Custom TTL (500 ms)
+const fast = await listWifiNetworks({ ttlMs: 500 });
+
+// rescanWifi always invalidates cache and returns fresh data
+```
+
+---
+
+## Types
+
+### `WiFiSecurityType`
+
+```typescript
+type WiFiSecurityType =
+  | 'none'
+  | 'wep'
+  | 'wpa-psk'
+  | 'wpa-eap'
+  | 'wpa2-psk'
+  | 'wpa3-psk';
+```
+
+### `VpnType`
+
+```typescript
+type VpnType =
+  | 'open-vpn'
+  | 'wire-guard'
+  | 'l2tp'
+  | 'pptp'
+  | 'sstp'
+  | 'ikev2'
+  | 'fortisslvpn'
+  | 'open-connect'
+  | 'generic';
+```
+
+### `VpnConnectionState`
+
+```typescript
+type VpnConnectionState =
+  | 'disconnected'
+  | 'connecting'
+  | 'connected'
+  | 'disconnecting'
+  | 'failed'
+  | 'unknown';
+```
+
+### `NetworkInfo`
+
+```typescript
+interface NetworkInfo {
+  name: string;
+  ssid: string;
+  connection_type: string;      // "wifi" | "Ethernet" | "Unknown"
+  icon: string;                  // icon name for the UI
+  ip_address: string;            // "0.0.0.0" when disconnected
+  mac_address: string;
+  signal_strength: number;       // 0–100
+  security_type: WiFiSecurityType;
+  is_connected: boolean;
+}
+```
+
+### `VpnProfile`
+
+```typescript
+interface VpnProfile {
+  id: string;
+  uuid: string;
+  vpn_type: VpnType;
+  interface_name: string | null;
+  autoconnect: boolean;
+  editable: boolean;
+  last_error: string | null;
+}
+```
+
+### `VpnStatus`
+
+```typescript
+interface VpnStatus {
+  state: VpnConnectionState;
+  active_profile_id: string | null;
+  active_profile_uuid: string | null;
+  active_profile_name: string | null;
+  ip_address: string | null;
+  gateway: string | null;
+  since_unix_ms: number | null;
+}
+```
+
+### `VpnEventPayload`
+
+```typescript
+interface VpnEventPayload {
+  status: VpnStatus;
+  profile: VpnProfile | null;
+  reason: string | null;  // populated on 'vpn-failed'
+}
+```
+
+---
+
+## Package Exports
+
+The NPM package provides ESM, CJS, and TypeScript declarations:
+
+```json
+{
+  "main": "./dist-js/index.cjs",
+  "module": "./dist-js/index.js",
+  "types": "./dist-js/index.d.ts",
+  "exports": {
+    "types": "./dist-js/index.d.ts",
+    "import": "./dist-js/index.js",
+    "require": "./dist-js/index.cjs"
+  }
+}
+```
+
+---
+
+## Testing & Build
 
 ```bash
+# Build the Rust crate
+cargo build
+
+# Run Rust tests
+cargo test
+
+# Build NPM guest package
 bun run build
-```
 
-Run smoke tests:
-
-```bash
+# Run smoke tests (requires Tauri project)
 bun run test
 ```
+
+---
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feat/my-feature`)
+3. Commit your changes (`git commit -am 'feat: add ...'`)
+4. Push (`git push origin feat/my-feature`)
+5. Open a Pull Request
+
+### Development tips
+
+- Use `RUST_LOG=debug` or `RUST_LOG=trace` to enable D-Bus call logging
+- Monitor NM D-Bus traffic: `busctl monitor org.freedesktop.NetworkManager`
+- Test Wi-Fi connection flow: `nmcli dev wifi list` then `nmcli connection add ...`
+
+---
+
+## License
+
+GPL-3.0-or-later — see [LICENSE](LICENSE).
