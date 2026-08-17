@@ -183,11 +183,21 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         }
     }
 
-    fn get_wired_icon(is_connected: bool) -> String {
-        if is_connected {
-            "network-wired-symbolic".to_string()
-        } else {
-            "network-offline-symbolic".to_string()
+    /// The icon for anything that is not Wi-Fi.
+    ///
+    /// Ethernet is one of these, not all of them: a VPN tunnel, a mobile modem
+    /// or a bridge are their own thing, and showing a cable for them tells the
+    /// person something untrue about how they are connected.
+    fn get_icon_for(connection_type: &str, is_connected: bool) -> String {
+        if !is_connected {
+            return "network-offline-symbolic".to_string();
+        }
+
+        match connection_type {
+            "Ethernet" => "network-wired-symbolic".to_string(),
+            "Modem" => "network-cellular-connected-symbolic".to_string(),
+            "VPN" | "WireGuard" => "network-vpn-symbolic".to_string(),
+            _ => "network-transmit-receive-symbolic".to_string(),
         }
     }
 
@@ -206,6 +216,32 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         })
     }
 
+    /// The connection the panel should describe: the one carrying the default
+    /// route, which is what NetworkManager calls the primary connection.
+    ///
+    /// Taking `ActiveConnections[0]` instead is how a laptop on Wi-Fi ended up
+    /// showing the wired icon: that list is in no particular order and holds
+    /// everything active — the loopback, a VPN tunnel, a bridge — so the panel
+    /// was describing whichever one happened to be first. On the machine this
+    /// was found on it was a `tun`, whose device type is neither ethernet nor
+    /// Wi-Fi, and everything that is not Wi-Fi used to be painted as wired.
+    fn primary_connection_path(&self) -> Option<zbus::zvariant::OwnedObjectPath> {
+        let primary = self
+            .proxy
+            .get(
+                InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager"),
+                "PrimaryConnection",
+            )
+            .ok()?;
+
+        match primary.downcast_ref() {
+            // "/" is NetworkManager for "there is no default route right now",
+            // and then there is nothing to prefer over the active list.
+            Ok(Value::ObjectPath(path)) if path.as_str() != "/" => Some(path.into()),
+            _ => None,
+        }
+    }
+
     pub fn get_current_network_state(&self) -> Result<NetworkInfo> {
         // Get active connections
         let active_connections_variant = self.proxy.get(
@@ -213,11 +249,19 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             "ActiveConnections",
         )?;
 
+        let primary = self.primary_connection_path();
+
         // If no active connections, return default
         match active_connections_variant.downcast_ref() {
             Ok(Value::Array(arr)) if !arr.is_empty() => {
-                // Get the first active connection path
-                match arr[0] {
+                let chosen = match (&primary, &arr[0]) {
+                    (Some(path), _) => path.as_ref().to_owned(),
+                    (None, Value::ObjectPath(path)) => path.to_owned(),
+                    _ => return Ok(NetworkInfo::default()),
+                };
+                let chosen = Value::ObjectPath(chosen);
+
+                match chosen {
                     zbus::zvariant::Value::ObjectPath(ref path) => {
                         // Get devices for this connection
                         // Crear un proxy de propiedades para obtener las propiedades
@@ -274,11 +318,17 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                             _ => false,
                         };
 
-                        // Determine connection type
+                        // Determine connection type. The numbers are
+                        // NMDeviceType; the ones named here are the ones with an
+                        // icon of their own, and anything else stays "Unknown"
+                        // rather than being drawn as something it is not.
                         let connection_type_str = match connection_type.downcast_ref() {
                             Ok(zbus::zvariant::Value::U32(device_type)) => match device_type {
                                 1 => "Ethernet".to_string(),
                                 2 => "WiFi".to_string(),
+                                8 => "Modem".to_string(),
+                                16 => "VPN".to_string(),
+                                29 => "WireGuard".to_string(),
                                 _ => "Unknown".to_string(),
                             },
                             _ => "Unknown".to_string(),
@@ -379,8 +429,10 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                 network_info.security_type = NetworkManagerHelpers::detect_security_type(&ap_properties_proxy)?;
                             }
                         } else {
-                            // This is a wired connection
-                            network_info.icon = Self::get_wired_icon(network_info.is_connected);
+                            // Everything that is not Wi-Fi used to be drawn as
+                            // an ethernet cable, tunnels and modems included.
+                            network_info.icon =
+                                Self::get_icon_for(&connection_type_str, network_info.is_connected);
                         }
                         // Get IP configuration
                         let ip4_config_path = device_properties_proxy.get(
