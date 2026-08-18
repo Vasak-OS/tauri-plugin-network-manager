@@ -116,6 +116,14 @@ export interface VpnStatus {
   ip_address: string | null;
   gateway: string | null;
   since_unix_ms: number | null;
+  /** La interfaz del túnel: sdwan0, tailscale0, wg0… */
+  interface: string | null;
+  /**
+   * La levantó su propia aplicación —Twingate, Tailscale, wg-quick— y no
+   * NetworkManager. Se puede mostrar, pero no conectar ni desconectar desde el
+   * escritorio: eso pelearía con el programa que la administra.
+   */
+  managed_externally: boolean;
 }
 
 export interface VpnEventPayload {

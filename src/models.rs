@@ -103,6 +103,12 @@ pub struct VpnStatus {
     pub ip_address: Option<String>,
     pub gateway: Option<String>,
     pub since_unix_ms: Option<u64>,
+    /// La interfaz por donde sale el túnel: sdwan0, tailscale0, wg0…
+    pub interface: Option<String>,
+    /// La levantó su propia aplicación y no NetworkManager, así que se puede
+    /// mostrar pero no conectar ni desconectar desde acá: hacerlo pelearía con
+    /// el programa que la administra.
+    pub managed_externally: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -122,6 +128,8 @@ impl Default for VpnStatus {
             ip_address: None,
             gateway: None,
             since_unix_ms: None,
+            interface: None,
+            managed_externally: false,
         }
     }
 }

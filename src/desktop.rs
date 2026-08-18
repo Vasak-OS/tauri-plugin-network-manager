@@ -1161,13 +1161,61 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
     }
 
     /// Get current VPN status from active connections.
+    /// Whether an active connection is a tunnel, and how much of a VPN it is.
+    ///
+    /// NetworkManager only files as "vpn" what one of its own VPN plugins set
+    /// up. A client that brings its own daemon — Twingate, Tailscale, ZeroTier,
+    /// wg-quick — creates the interface itself, and NetworkManager sees a plain
+    /// tun or wireguard device. It is still a VPN to whoever is using the
+    /// machine: with Twingate connected, the control centre said there was no
+    /// VPN while every packet was going through it.
+    ///
+    /// The number is how much of a VPN each kind is, for when there is more
+    /// than one tunnel up: a profile NetworkManager manages says more than a
+    /// tun device somebody else created.
+    fn tunnel_priority(conn_type: &str) -> Option<u8> {
+        match conn_type {
+            "vpn" => Some(3),
+            "wireguard" => Some(2),
+            "tun" | "tap" | "ip-tunnel" => Some(1),
+            _ => None,
+        }
+    }
+
+    /// The name to show for a tunnel NetworkManager did not create.
+    ///
+    /// Their connection id is the interface name, which tells nobody anything:
+    /// "sdwan0" is Twingate, and there is nothing on the system that says so.
+    /// The ones we know get their product name; the rest keep the id, which is
+    /// still better than claiming there is no VPN.
+    fn tunnel_display_name(id: &str, interface: Option<&str>) -> String {
+        const CONOCIDAS: [(&str, &str); 7] = [
+            ("sdwan", "Twingate"),
+            ("tailscale", "Tailscale"),
+            ("nordlynx", "NordVPN"),
+            ("proton", "Proton VPN"),
+            ("pvpn", "Proton VPN"),
+            ("zt", "ZeroTier"),
+            ("wg", "WireGuard"),
+        ];
+
+        let nombre = interface.unwrap_or(id);
+        for (prefijo, producto) in CONOCIDAS {
+            if nombre.starts_with(prefijo) {
+                return producto.to_string();
+            }
+        }
+
+        id.to_string()
+    }
+
     pub fn get_vpn_status(&self) -> Result<VpnStatus> {
         let active_connections_variant = self.proxy.get(
             InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager"),
             "ActiveConnections",
         )?;
 
-        let mut status = VpnStatus::default();
+        let mut mejor: Option<(u8, zbus::zvariant::OwnedObjectPath, String)> = None;
 
         if let Ok(zbus::zvariant::Value::Array(arr)) = active_connections_variant.downcast_ref() {
             for value in arr.iter() {
@@ -1193,80 +1241,159 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                     _ => continue,
                 };
 
-                if conn_type != "vpn" {
+                let Some(prioridad) = Self::tunnel_priority(&conn_type) else {
                     continue;
+                };
+
+                if mejor.as_ref().is_none_or(|(previa, _, _)| prioridad > *previa) {
+                    mejor = Some((
+                        prioridad,
+                        zbus::zvariant::OwnedObjectPath::from(active_path.to_owned()),
+                        conn_type,
+                    ));
+                }
+            }
+        }
+
+        let Some((_, active_path, conn_type)) = mejor else {
+            return Ok(VpnStatus::default());
+        };
+
+        self.vpn_status_from_active(&active_path, &conn_type)
+    }
+
+    /// Reads the status of one active tunnel.
+    fn vpn_status_from_active(
+        &self,
+        active_path: &zbus::zvariant::OwnedObjectPath,
+        conn_type: &str,
+    ) -> Result<VpnStatus> {
+        let mut status = VpnStatus::default();
+
+        let active_props = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
+            .destination("org.freedesktop.NetworkManager")?
+            .path(active_path.as_ref())?
+            .build()?;
+
+        let leer = |propiedad: &'static str| {
+            active_props.get(
+                InterfaceName::from_static_str_unchecked(
+                    "org.freedesktop.NetworkManager.Connection.Active",
+                ),
+                propiedad,
+            )
+        };
+
+        let state = match leer("State")?.downcast_ref() {
+            Ok(zbus::zvariant::Value::U32(v)) => v,
+            _ => 0,
+        };
+        status.state = Self::vpn_state_from_active_state(state);
+
+        let id = match leer("Id")?.downcast_ref() {
+            Ok(zbus::zvariant::Value::Str(v)) => v.to_string(),
+            _ => String::new(),
+        };
+        status.active_profile_uuid = match leer("Uuid")?.downcast_ref() {
+            Ok(zbus::zvariant::Value::Str(v)) => Some(v.to_string()),
+            _ => None,
+        };
+
+        // Una VPN de NetworkManager tiene nombre puesto por quien la creó; las
+        // otras traen el nombre de la interfaz, que no le dice nada a nadie.
+        status.managed_externally = conn_type != "vpn";
+        status.interface = self.active_connection_interface(&active_props);
+        status.active_profile_name = Some(if status.managed_externally {
+            Self::tunnel_display_name(&id, status.interface.as_deref())
+        } else {
+            id.clone()
+        });
+        status.active_profile_id = Some(id);
+
+        if let Ok(zbus::zvariant::Value::ObjectPath(ip4_path)) =
+            leer("Ip4Config")?.downcast_ref()
+        {
+            if ip4_path.as_str() != "/" {
+                let ip4_props = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
+                    .destination("org.freedesktop.NetworkManager")?
+                    .path(ip4_path)?
+                    .build()?;
+
+                let leer_ip = |propiedad: &'static str| {
+                    ip4_props.get(
+                        InterfaceName::from_static_str_unchecked(
+                            "org.freedesktop.NetworkManager.IP4Config",
+                        ),
+                        propiedad,
+                    )
+                };
+
+                if let Ok(gateway) = leer_ip("Gateway") {
+                    status.gateway = match gateway.downcast_ref() {
+                        Ok(zbus::zvariant::Value::Str(v)) if !v.is_empty() => Some(v.to_string()),
+                        _ => None,
+                    };
                 }
 
-                let state_variant = active_props.get(
-                    InterfaceName::from_static_str_unchecked(
-                        "org.freedesktop.NetworkManager.Connection.Active",
-                    ),
-                    "State",
-                )?;
-                let state = match state_variant.downcast_ref() {
-                    Ok(zbus::zvariant::Value::U32(v)) => v,
-                    _ => 0,
-                };
-
-                let id_variant = active_props.get(
-                    InterfaceName::from_static_str_unchecked(
-                        "org.freedesktop.NetworkManager.Connection.Active",
-                    ),
-                    "Id",
-                )?;
-                let uuid_variant = active_props.get(
-                    InterfaceName::from_static_str_unchecked(
-                        "org.freedesktop.NetworkManager.Connection.Active",
-                    ),
-                    "Uuid",
-                )?;
-
-                status.state = Self::vpn_state_from_active_state(state);
-                status.active_profile_name = match id_variant.downcast_ref() {
-                    Ok(zbus::zvariant::Value::Str(v)) => Some(v.to_string()),
-                    _ => None,
-                };
-                status.active_profile_id = status.active_profile_name.clone();
-                status.active_profile_uuid = match uuid_variant.downcast_ref() {
-                    Ok(zbus::zvariant::Value::Str(v)) => Some(v.to_string()),
-                    _ => None,
-                };
-
-                let ip4_config_variant = active_props.get(
-                    InterfaceName::from_static_str_unchecked(
-                        "org.freedesktop.NetworkManager.Connection.Active",
-                    ),
-                    "Ip4Config",
-                )?;
-
-                if let Ok(zbus::zvariant::Value::ObjectPath(ip4_path)) =
-                    ip4_config_variant.downcast_ref()
-                {
-                    if ip4_path.as_str() != "/" {
-                        let ip4_props = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
-                            .destination("org.freedesktop.NetworkManager")?
-                            .path(ip4_path)?
-                            .build()?;
-
-                        if let Ok(gateway_variant) = ip4_props.get(
-                            InterfaceName::from_static_str_unchecked(
-                                "org.freedesktop.NetworkManager.IP4Config",
-                            ),
-                            "Gateway",
-                        ) {
-                            status.gateway = match gateway_variant.downcast_ref() {
-                                Ok(zbus::zvariant::Value::Str(v)) => Some(v.to_string()),
-                                _ => None,
-                            };
+                // La dirección dentro del túnel: es lo que alguien mira para
+                // saber con qué IP lo ve la red del otro lado.
+                if let Ok(addresses) = leer_ip("Addresses") {
+                    if let Ok(zbus::zvariant::Value::Array(arr)) = addresses.downcast_ref() {
+                        if let Some(zbus::zvariant::Value::Array(tupla)) = arr.first() {
+                            if let Some(zbus::zvariant::Value::U32(entero)) = tupla.first() {
+                                use std::net::Ipv4Addr;
+                                status.ip_address =
+                                    Some(Ipv4Addr::from(entero.to_be()).to_string());
+                            }
                         }
                     }
                 }
-
-                return Ok(status);
             }
         }
 
         Ok(status)
+    }
+
+    /// The interface a tunnel came up on, asked to the device itself.
+    fn active_connection_interface(
+        &self,
+        active_props: &zbus::blocking::fdo::PropertiesProxy,
+    ) -> Option<String> {
+        let devices = active_props
+            .get(
+                InterfaceName::from_static_str_unchecked(
+                    "org.freedesktop.NetworkManager.Connection.Active",
+                ),
+                "Devices",
+            )
+            .ok()?;
+
+        let zbus::zvariant::Value::Array(arr) = devices.downcast_ref().ok()? else {
+            return None;
+        };
+        let zbus::zvariant::Value::ObjectPath(device_path) = arr.first()? else {
+            return None;
+        };
+
+        let device_props = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
+            .destination("org.freedesktop.NetworkManager")
+            .ok()?
+            .path(device_path)
+            .ok()?
+            .build()
+            .ok()?;
+
+        let interface = device_props
+            .get(
+                InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager.Device"),
+                "Interface",
+            )
+            .ok()?;
+
+        match interface.downcast_ref() {
+            Ok(zbus::zvariant::Value::Str(v)) => Some(v.to_string()),
+            _ => None,
+        }
     }
 
     /// Connect a VPN profile by UUID.
@@ -1616,6 +1743,119 @@ mod tests {
             VSKNetworkManager::<tauri::Wry>::vpn_state_from_active_state(4),
             VpnConnectionState::Disconnected
         );
+    }
+
+    /// El caso que motivó todo esto: con Twingate conectado, el centro de
+    /// control decía que no había VPN. Twingate levanta su propio túnel, así
+    /// que NetworkManager lo archiva como un `tun` cualquiera y no como una
+    /// "vpn" suya.
+    #[test]
+    fn un_tun_ajeno_tambien_es_una_vpn() {
+        type NM = VSKNetworkManager<'static, tauri::Wry>;
+
+        assert!(NM::tunnel_priority("tun").is_some(), "Twingate quedaba afuera");
+        assert!(NM::tunnel_priority("wireguard").is_some());
+        assert!(NM::tunnel_priority("vpn").is_some());
+
+        // Y lo que no es un túnel sigue sin serlo: si el wifi contara como VPN,
+        // el indicador estaría siempre encendido.
+        assert!(NM::tunnel_priority("802-11-wireless").is_none());
+        assert!(NM::tunnel_priority("ethernet").is_none());
+        assert!(NM::tunnel_priority("loopback").is_none());
+        assert!(NM::tunnel_priority("bridge").is_none());
+    }
+
+    /// Con varios túneles arriba manda el que NetworkManager administra: es el
+    /// único que además se puede conectar y desconectar desde el escritorio.
+    #[test]
+    fn una_vpn_de_networkmanager_le_gana_a_un_tun() {
+        type NM = VSKNetworkManager<'static, tauri::Wry>;
+        assert!(NM::tunnel_priority("vpn") > NM::tunnel_priority("wireguard"));
+        assert!(NM::tunnel_priority("wireguard") > NM::tunnel_priority("tun"));
+    }
+
+    /// Contra el NetworkManager de verdad: que las propiedades que leemos
+    /// existan y digan lo que creemos. Es donde se esconden los errores de una
+    /// interfaz D-Bus, y ningún test puro los encuentra.
+    ///
+    /// Ignorado por defecto porque necesita un sistema con NetworkManager y una
+    /// VPN levantada: `cargo test -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn el_tunel_de_esta_maquina_se_ve_como_vpn() {
+        type NM = VSKNetworkManager<'static, tauri::Wry>;
+        use zbus::names::InterfaceName;
+        use zbus::zvariant::Value;
+
+        let conexion = zbus::blocking::Connection::system().expect("sin bus del sistema");
+        let nm = zbus::blocking::fdo::PropertiesProxy::builder(&conexion)
+            .destination("org.freedesktop.NetworkManager").unwrap()
+            .path("/org/freedesktop/NetworkManager").unwrap()
+            .build()
+            .expect("NetworkManager no está");
+
+        let activas = nm
+            .get(
+                InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager"),
+                "ActiveConnections",
+            )
+            .unwrap();
+
+        let mut encontrados = Vec::new();
+        if let Ok(Value::Array(arr)) = activas.downcast_ref() {
+            for valor in arr.iter() {
+                let Value::ObjectPath(ruta) = valor else { continue };
+                let props = zbus::blocking::fdo::PropertiesProxy::builder(&conexion)
+                    .destination("org.freedesktop.NetworkManager").unwrap()
+                    .path(ruta).unwrap()
+                    .build()
+                    .unwrap();
+                let leer = |p: &'static str| {
+                    props.get(
+                        InterfaceName::from_static_str_unchecked(
+                            "org.freedesktop.NetworkManager.Connection.Active",
+                        ),
+                        p,
+                    )
+                };
+                let tipo = match leer("Type").unwrap().downcast_ref() {
+                    Ok(Value::Str(v)) => v.to_string(),
+                    _ => continue,
+                };
+                let id = match leer("Id").unwrap().downcast_ref() {
+                    Ok(Value::Str(v)) => v.to_string(),
+                    _ => String::new(),
+                };
+                match NM::tunnel_priority(&tipo) {
+                    Some(prioridad) => {
+                        let nombre = NM::tunnel_display_name(&id, Some(&id));
+                        println!("túnel: id={id} tipo={tipo} prioridad={prioridad} se muestra como «{nombre}»");
+                        encontrados.push(nombre);
+                    }
+                    None => println!("no es túnel: id={id} tipo={tipo}"),
+                }
+            }
+        }
+
+        assert!(
+            !encontrados.is_empty(),
+            "ningún túnel detectado; levantá la VPN antes de correr esto"
+        );
+    }
+
+    /// «sdwan0» no le dice nada a nadie; «Twingate» sí.
+    #[test]
+    fn los_tuneles_conocidos_se_muestran_con_su_nombre() {
+        type NM = VSKNetworkManager<'static, tauri::Wry>;
+
+        assert_eq!(NM::tunnel_display_name("sdwan0", Some("sdwan0")), "Twingate");
+        assert_eq!(NM::tunnel_display_name("tailscale0", Some("tailscale0")), "Tailscale");
+        assert_eq!(NM::tunnel_display_name("wg0", Some("wg0")), "WireGuard");
+
+        // Uno desconocido conserva el nombre que le puso NetworkManager: es
+        // menos de lo que querríamos, pero muchísimo más que decir que no hay
+        // ninguna VPN.
+        assert_eq!(NM::tunnel_display_name("Oficina", Some("tun0")), "Oficina");
     }
 }
 
