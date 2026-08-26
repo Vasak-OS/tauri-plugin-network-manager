@@ -129,8 +129,10 @@ pub fn get_network_interfaces() -> Result<Vec<String>> {
         ))?;
     
     let mut interfaces = Vec::new();
-    for entry in entries {
-        if let Ok(entry) = entry {
+    // `flatten` en lugar de `if let Ok(...)`: de un iterador de Result sólo
+    // interesan los Ok, y así se dice en una línea en vez de anidar.
+    for entry in entries.flatten() {
+        {
             if let Some(name) = entry.file_name().to_str() {
                 // Skip loopback interface
                 if name != "lo" {

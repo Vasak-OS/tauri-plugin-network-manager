@@ -100,10 +100,10 @@ impl NetworkManagerHelpers {
             "Connectivity",
         )?;
 
-        Ok(match connectivity_variant.downcast_ref() {
-            Ok(Value::U32(CONNECTIVITY_FULL)) => true,
-            _ => false,
-        })
+        Ok(matches!(
+            connectivity_variant.downcast_ref(),
+            Ok(Value::U32(CONNECTIVITY_FULL))
+        ))
     }
 
     pub fn ssid_from_value(value: &Value<'_>) -> String {

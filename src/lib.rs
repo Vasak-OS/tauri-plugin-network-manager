@@ -292,7 +292,7 @@ impl<R: Runtime> NetworkManagerState<R> {
     pub fn get_wireless_enabled(&self) -> Result<bool, NetworkError> {
         let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
         match manager.as_ref() {
-            Some(manager) => manager.get_wireless_enabled().map_err(|e| NetworkError::from(e)),
+            Some(manager) => manager.get_wireless_enabled(),
             _none => Err(NetworkError::NotInitialized),
         }
     }
@@ -300,7 +300,7 @@ impl<R: Runtime> NetworkManagerState<R> {
     pub fn set_wireless_enabled(&self, enabled: bool) -> Result<(), NetworkError> {
         let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
         match manager.as_ref() {
-             Some(manager) => manager.set_wireless_enabled(enabled).map_err(|e| NetworkError::from(e)),
+             Some(manager) => manager.set_wireless_enabled(enabled),
             _none => Err(NetworkError::NotInitialized),
         }
     }
@@ -308,7 +308,7 @@ impl<R: Runtime> NetworkManagerState<R> {
     pub fn is_wireless_available(&self) -> Result<bool, NetworkError> {
         let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
         match manager.as_ref() {
-            Some(manager) => manager.is_wireless_available().map_err(|e| NetworkError::from(e)),
+            Some(manager) => manager.is_wireless_available(),
             _none => Err(NetworkError::NotInitialized),
         }
     }
@@ -357,7 +357,7 @@ impl<R: Runtime> NetworkManagerState<R> {
         
         // Get stats from tracker
         match tracker.as_mut() {
-            Some(t) => t.get_stats().map_err(|e| NetworkError::from(e)),
+            Some(t) => t.get_stats(),
             None => Err(NetworkError::OperationError("Stats tracker not initialized".to_string())),
         }
     }
@@ -449,27 +449,32 @@ pub fn init() -> TauriPlugin<tauri::Wry> {
             let _ = env_logger::builder()
                 .filter_level(log::LevelFilter::Info)
                 .try_init();
-            let network_manager = crate::desktop::init(&app, _api)?;
+            let network_manager = crate::desktop::init(app, _api)?;
 
             app.manage(NetworkManagerState::<tauri::Wry>::new(Some(
                 network_manager,
             )));
 
-            app.state::<NetworkManagerState<tauri::Wry>>()
+            // `if let` y no `map`: acá no se transforma nada, se lanza una tarea.
+            // Con `map` la intención se lee mal —parece que devuelve algo— y el
+            // resultado se descartaba en silencio.
+            // El `state()` devuelve un temporal, así que se liga antes: si no, el
+            // guard toma prestado de algo que se libera al final de la sentencia.
+            let estado = app.state::<NetworkManagerState<tauri::Wry>>();
+            let guardia = estado
                 .manager
                 .read()
-                .map_err(|_| NetworkError::LockError)?
-                .as_ref()
-                .map(|manager| {
-                    // Clone the manager with a 'static lifetime
-                    let manager_static: crate::models::VSKNetworkManager<'static, tauri::Wry> =
-                        crate::models::VSKNetworkManager {
-                            connection: manager.connection.clone(),
-                            proxy: manager.proxy.clone(),
-                            app: app.clone(),
-                        };
-                    spawn_network_change_emitter(app.clone(), manager_static);
-                });
+                .map_err(|_| NetworkError::LockError)?;
+            if let Some(manager) = guardia.as_ref() {
+                // Clone the manager with a 'static lifetime
+                let manager_static: crate::models::VSKNetworkManager<'static, tauri::Wry> =
+                    crate::models::VSKNetworkManager {
+                        connection: manager.connection.clone(),
+                        proxy: manager.proxy.clone(),
+                        app: app.clone(),
+                    };
+                spawn_network_change_emitter(app.clone(), manager_static);
+            }
 
             Ok(())
         })
