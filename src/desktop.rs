@@ -127,7 +127,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                 None => continue,
             };
 
-            if let Some(conn_uuid) = Self::extract_string_from_dict(&dict, "uuid") {
+            if let Some(conn_uuid) = Self::extract_string_from_dict(dict, "uuid") {
                 if conn_uuid == uuid {
                     return Ok(conn_path);
                 }
@@ -462,7 +462,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
                             if let Ok(Value::Array(addr_arr)) = addresses_variant.downcast_ref() {
                                 if let Some(Value::Array(ip_tuple)) = addr_arr.first() {
-                                    if ip_tuple.len() >= 1 {
+                                    if !ip_tuple.is_empty() {
                                         if let Value::U32(ip_int) = &ip_tuple[0] {
                                             use std::net::Ipv4Addr;
                                             network_info.ip_address =
@@ -646,7 +646,8 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             }
         }
 
-        networks.sort_by(|a, b| b.signal_strength.cmp(&a.signal_strength));
+        // De mayor a menor señal.
+        networks.sort_by_key(|red| std::cmp::Reverse(red.signal_strength));
         Ok(networks)
     }
 
@@ -882,7 +883,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                 "/org/freedesktop/NetworkManager",
                 "org.freedesktop.NetworkManager",
             ) {
-                if let Ok(mut signal) = proxy.receive_signal("StateChanged") {
+                if let Ok(signal) = proxy.receive_signal("StateChanged") {
                     let proxy_props = zbus::blocking::fdo::PropertiesProxy::builder(
                         &connection_clone,
                     )
@@ -893,7 +894,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                     .build()
                     .unwrap();
 
-                    while let Some(_msg) = signal.next() {
+                    for _msg in signal {
                         let network_manager = VSKNetworkManager {
                             connection: connection_clone.clone(),
                             proxy: proxy_props.clone(),
@@ -1000,8 +1001,10 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
                     // Si es una conexión WiFi, extraer la información
                     if conn_type_str == "802-11-wireless" {
-                        let mut network_info = NetworkInfo::default();
-                        network_info.connection_type = "wifi".to_string();
+                        let mut network_info = NetworkInfo {
+                            connection_type: "wifi".to_string(),
+                            ..Default::default()
+                        };
 
                         // Obtener el nombre de la conexión
                         if let Some(id) = connection_dict.get("id") {
@@ -1245,7 +1248,13 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                     continue;
                 };
 
-                if mejor.as_ref().is_none_or(|(previa, _, _)| prioridad > *previa) {
+                // `map_or` y no `is_none_or`: esta última es estable desde 1.82 y el
+                // crate declara `rust-version = "1.77.2"`, así que con ella no
+                // compilaba en el mínimo que promete.
+                if mejor
+                    .as_ref()
+                    .map_or(true, |(previa, _, _)| prioridad > *previa)
+                {
                     mejor = Some((
                         prioridad,
                         zbus::zvariant::OwnedObjectPath::from(active_path.to_owned()),
@@ -1629,7 +1638,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
         let connection_section = settings
             .entry("connection".to_string())
-            .or_insert_with(HashMap::new);
+            .or_default();
         connection_section.insert(
             "id".to_string(),
             Value::from(config.id.clone().unwrap_or(existing_profile.id.clone())),
@@ -1650,7 +1659,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
         let vpn_section = settings
             .entry("vpn".to_string())
-            .or_insert_with(HashMap::new);
+            .or_default();
         vpn_section.insert("service-type".to_string(), Value::from(service_type));
 
         let mut merged_settings = existing_vpn_settings;
@@ -1697,7 +1706,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         } else {
             let vpn_secrets_section = settings
                 .entry("vpn-secrets".to_string())
-                .or_insert_with(HashMap::new);
+                .or_default();
             vpn_secrets_section.clear();
             for (k, v) in merged_secrets {
                 vpn_secrets_section.insert(k, Value::from(v));
@@ -1714,7 +1723,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
         let updated_settings = self.get_connection_settings(&conn_path)?;
         self.vpn_profile_from_settings(&updated_settings)
-            .ok_or_else(|| crate::error::NetworkError::VpnProfileNotFound(config.uuid))
+            .ok_or(crate::error::NetworkError::VpnProfileNotFound(config.uuid))
     }
 
     /// Delete a VPN profile by UUID.
@@ -1731,6 +1740,14 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         conn_proxy.call::<_, _, ()>("Delete", &())?;
         Ok(())
     }
+}
+
+/// Initialize the network manager plugin
+pub fn init(
+    app: &AppHandle<tauri::Wry>,
+    _api: PluginApi<tauri::Wry, ()>,
+) -> Result<VSKNetworkManager<'static, tauri::Wry>> {
+    VSKNetworkManager::new(app.clone())
 }
 
 #[cfg(test)]
@@ -1857,12 +1874,4 @@ mod tests {
         // ninguna VPN.
         assert_eq!(NM::tunnel_display_name("Oficina", Some("tun0")), "Oficina");
     }
-}
-
-/// Initialize the network manager plugin
-pub fn init(
-    app: &AppHandle<tauri::Wry>,
-    _api: PluginApi<tauri::Wry, ()>,
-) -> Result<VSKNetworkManager<'static, tauri::Wry>> {
-    Ok(VSKNetworkManager::new(app.clone())?)
 }

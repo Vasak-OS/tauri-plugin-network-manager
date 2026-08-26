@@ -39,8 +39,8 @@ pub async fn get_network_state(app_handle: AppHandle) -> Result<NetworkInfo>  {
 
         match manager.as_ref() {
             Some(manager) => {
-                let result = manager.get_current_network_state();
-                result
+                
+                manager.get_current_network_state()
             },
             _ => Err(NetworkError::NotInitialized),
         }
@@ -136,7 +136,7 @@ pub async fn toggle_network_state(app_handle: AppHandle, enabled: bool) -> Resul
 pub async fn get_wireless_enabled(app_handle: AppHandle) -> Result<bool>  {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
-        Ok(state.get_wireless_enabled()?)
+        state.get_wireless_enabled()
     })
     .await
 }
@@ -145,7 +145,7 @@ pub async fn get_wireless_enabled(app_handle: AppHandle) -> Result<bool>  {
 pub async fn set_wireless_enabled(app_handle: AppHandle, enabled: bool) -> Result<()>  {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
-        Ok(state.set_wireless_enabled(enabled)?)
+        state.set_wireless_enabled(enabled)
     })
     .await
 }
@@ -154,7 +154,7 @@ pub async fn set_wireless_enabled(app_handle: AppHandle, enabled: bool) -> Resul
 pub async fn is_wireless_available(app_handle: AppHandle) -> Result<bool>  {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
-        Ok(state.is_wireless_available()?)
+        state.is_wireless_available()
     })
     .await
 }
@@ -174,7 +174,6 @@ pub async fn get_network_stats(app_handle: AppHandle) -> Result<crate::models::N
 pub async fn get_network_interfaces() -> Result<Vec<String>>  {
     off_thread(move || {
         crate::network_stats::get_network_interfaces()
-            .map_err(|e| NetworkError::from(e))
     })
     .await
 }
