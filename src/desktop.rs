@@ -796,12 +796,14 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
     /// Connect to a WiFi network
     pub fn connect_to_wifi(&self, config: WiFiConnectionConfig) -> Result<()> {
-        // Log connection attempt
+        // Log connection attempt. No se loguea el usuario: en WPA-Enterprise es
+        // una credencial, y un log de depuración no es lugar para credenciales.
+        // Se registra sólo si vino uno, no cuál.
         log::debug!(
-            "connect_to_wifi called: ssid='{}' security={:?} username={:?}",
+            "connect_to_wifi called: ssid='{}' security={:?} has_username={}",
             config.ssid,
             config.security_type,
-            config.username
+            config.username.is_some()
         );
 
         // Create connection settings
