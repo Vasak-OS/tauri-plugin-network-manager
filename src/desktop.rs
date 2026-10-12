@@ -114,10 +114,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         Ok(settings)
     }
 
-    fn find_connection_path_by_uuid(
-        &self,
-        uuid: &str,
-    ) -> Result<zbus::zvariant::OwnedObjectPath> {
+    fn find_connection_path_by_uuid(&self, uuid: &str) -> Result<zbus::zvariant::OwnedObjectPath> {
         let connections = self.list_connection_paths()?;
 
         for conn_path in connections {
@@ -134,7 +131,9 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             }
         }
 
-        Err(crate::error::NetworkError::VpnProfileNotFound(uuid.to_string()))
+        Err(crate::error::NetworkError::VpnProfileNotFound(
+            uuid.to_string(),
+        ))
     }
 
     fn vpn_profile_from_settings(
@@ -149,11 +148,11 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         }
 
         let uuid = Self::extract_string_from_dict(connection_dict, "uuid")?;
-        let id = Self::extract_string_from_dict(connection_dict, "id")
-            .unwrap_or_else(|| uuid.clone());
+        let id =
+            Self::extract_string_from_dict(connection_dict, "id").unwrap_or_else(|| uuid.clone());
         let interface_name = Self::extract_string_from_dict(connection_dict, "interface-name");
-        let autoconnect = Self::extract_bool_from_dict(connection_dict, "autoconnect")
-            .unwrap_or(false);
+        let autoconnect =
+            Self::extract_bool_from_dict(connection_dict, "autoconnect").unwrap_or(false);
 
         let vpn_settings = Self::string_map_from_section(settings, "vpn");
         let service_type = vpn_settings
@@ -344,7 +343,8 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                             mac_address: "00:00:00:00:00:00".to_string(),
                             signal_strength: 0,
                             security_type: WiFiSecurityType::None,
-                            is_connected: is_connected && NetworkManagerHelpers::has_internet_connectivity(&self.proxy)?,
+                            is_connected: is_connected
+                                && NetworkManagerHelpers::has_internet_connectivity(&self.proxy)?,
                         };
 
                         let hw_address_variant = device_properties_proxy.get(
@@ -426,7 +426,10 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                     Self::get_wifi_icon(network_info.signal_strength);
 
                                 // Determine security type using helper
-                                network_info.security_type = NetworkManagerHelpers::detect_security_type(&ap_properties_proxy)?;
+                                network_info.security_type =
+                                    NetworkManagerHelpers::detect_security_type(
+                                        &ap_properties_proxy,
+                                    )?;
                             }
                         } else {
                             // Everything that is not Wi-Fi used to be drawn as
@@ -587,12 +590,13 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                             {
                                 for ap in aps.iter() {
                                     if let zbus::zvariant::Value::ObjectPath(ref ap_path) = ap {
-                                        let ap_props = zbus::blocking::fdo::PropertiesProxy::builder(
-                                            &self.connection,
-                                        )
-                                        .destination("org.freedesktop.NetworkManager")?
-                                        .path(ap_path)?
-                                        .build()?;
+                                        let ap_props =
+                                            zbus::blocking::fdo::PropertiesProxy::builder(
+                                                &self.connection,
+                                            )
+                                            .destination("org.freedesktop.NetworkManager")?
+                                            .path(ap_path)?
+                                            .build()?;
 
                                         let ssid_variant = ap_props.get(
                                             InterfaceName::from_static_str_unchecked(
@@ -618,9 +622,11 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                             _ => 0,
                                         };
 
-                                        let security_type = NetworkManagerHelpers::detect_security_type(&ap_props)?;
+                                        let security_type =
+                                            NetworkManagerHelpers::detect_security_type(&ap_props)?;
 
-                                        let is_connected = connected_ssid.as_deref() == Some(ssid.as_str());
+                                        let is_connected =
+                                            connected_ssid.as_deref() == Some(ssid.as_str());
 
                                         let network_info = NetworkInfo {
                                             name: ssid.clone(),
@@ -634,7 +640,10 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                                             is_connected,
                                         };
 
-                                        if !networks.iter().any(|n: &NetworkInfo| n.ssid == network_info.ssid) {
+                                        if !networks
+                                            .iter()
+                                            .any(|n: &NetworkInfo| n.ssid == network_info.ssid)
+                                        {
                                             networks.push(network_info);
                                         }
                                     }
@@ -679,10 +688,9 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                         device_type_variant.downcast_ref()
                     {
                         if device_type == 2u32 {
-                            let owned = zbus::zvariant::OwnedObjectPath::try_from(
-                                device_path.as_str(),
-                            )
-                            .unwrap();
+                            let owned =
+                                zbus::zvariant::OwnedObjectPath::try_from(device_path.as_str())
+                                    .unwrap();
                             paths.push(owned);
                         }
                     }
@@ -692,8 +700,43 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         Ok(paths)
     }
 
+    /// ¿El barrido ya terminó? NetworkManager marca el fin subiendo `LastScan`
+    /// por encima del valor que tenía antes de que lo pidiéramos. `-1` es "nunca
+    /// escaneó", así que nunca cuenta como terminado: seguimos esperando.
+    fn scan_settled(before: i64, current: i64) -> bool {
+        current != -1 && current != before
+    }
+
+    /// Lee `LastScan` (milisegundos de CLOCK_BOOTTIME, `-1` si nunca) de un
+    /// dispositivo inalámbrico. Cualquier fallo de lectura se devuelve como `-1`
+    /// para que el que espera siga esperando en vez de darse por satisfecho con
+    /// una lista a medio cocinar.
+    fn read_last_scan(props: &zbus::blocking::fdo::PropertiesProxy) -> i64 {
+        match props.get(
+            InterfaceName::from_static_str_unchecked(
+                "org.freedesktop.NetworkManager.Device.Wireless",
+            ),
+            "LastScan",
+        ) {
+            Ok(value) => match value.downcast_ref() {
+                Ok(zbus::zvariant::Value::I64(last)) => last,
+                _ => -1,
+            },
+            Err(_) => -1,
+        }
+    }
+
     /// Request an explicit WiFi scan through NetworkManager and return a fresh list.
+    ///
+    /// `RequestScan` es "dispará y olvidate": NetworkManager arranca el barrido en
+    /// segundo plano y contesta en el acto, mientras el rastreo real tarda varios
+    /// segundos. Antes leíamos los `AccessPoints` apenas contestaba —o sea, la
+    /// lista del barrido *anterior*, vacía recién encendido el WiFi—, y por eso
+    /// "no encontraba nada". Ahora esperamos a que `LastScan` avance antes de leer.
     pub fn rescan_wifi(&self) -> Result<Vec<NetworkInfo>> {
+        const SCAN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+        const SCAN_POLL: std::time::Duration = std::time::Duration::from_millis(300);
+
         let devices = self.wireless_device_paths()?;
 
         if devices.is_empty() {
@@ -702,7 +745,21 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             ));
         }
 
+        // ¿Algún dispositivo llegó a completar un barrido? Si ninguno lo hizo,
+        // la lista que devolveríamos sería la vieja, y el contrato del comando es
+        // entregar una fresca: en ese caso es un error, no un éxito con datos
+        // rancios.
+        let mut any_settled = false;
+
         for device_path in &devices {
+            let wireless_props = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
+                .destination("org.freedesktop.NetworkManager")?
+                .path(device_path.as_str())?
+                .build()?;
+
+            // Desde qué barrido estamos esperando el siguiente.
+            let last_scan_before = Self::read_last_scan(&wireless_props);
+
             let wireless_proxy = zbus::blocking::Proxy::new(
                 &self.connection,
                 "org.freedesktop.NetworkManager",
@@ -710,22 +767,44 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                 "org.freedesktop.NetworkManager.Device.Wireless",
             )?;
 
+            // `RequestScan` puede negarse si ya hay un barrido en curso o si el
+            // anterior fue hace muy poco. En los dos casos igual queremos esperar
+            // a que `LastScan` avance y leer recién entonces, así que no es un
+            // error: lo ignoramos a propósito.
             let options: HashMap<String, zbus::zvariant::OwnedValue> = HashMap::new();
-            if wireless_proxy.call::<_, _, ()>("RequestScan", &(options,)).is_ok() {
-                return self.list_wifi_networks();
+            let _ = wireless_proxy.call::<_, _, ()>("RequestScan", &(options,));
+
+            // Esperar a que el barrido termine antes de leer la lista.
+            let deadline = std::time::Instant::now() + SCAN_TIMEOUT;
+            while std::time::Instant::now() < deadline {
+                if Self::scan_settled(last_scan_before, Self::read_last_scan(&wireless_props)) {
+                    any_settled = true;
+                    break;
+                }
+                std::thread::sleep(SCAN_POLL);
             }
         }
 
-        Err(crate::error::NetworkError::OperationError(
-            "Failed to request WiFi scan on available wireless devices".to_string(),
-        ))
+        if !any_settled {
+            return Err(crate::error::NetworkError::OperationError(
+                "WiFi scan did not complete on any wireless device".to_string(),
+            ));
+        }
+
+        self.list_wifi_networks()
     }
 
     /// Connect to a WiFi network
     pub fn connect_to_wifi(&self, config: WiFiConnectionConfig) -> Result<()> {
-        // Log connection attempt
-        log::debug!("connect_to_wifi called: ssid='{}' security={:?} username={:?}",
-                  config.ssid, config.security_type, config.username);
+        // Log connection attempt. No se loguea el usuario: en WPA-Enterprise es
+        // una credencial, y un log de depuración no es lugar para credenciales.
+        // Se registra sólo si vino uno, no cuál.
+        log::debug!(
+            "connect_to_wifi called: ssid='{}' security={:?} has_username={}",
+            config.ssid,
+            config.security_type,
+            config.username.is_some()
+        );
 
         // Create connection settings
         let mut connection_settings = HashMap::new();
@@ -739,7 +818,10 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         connection_settings.insert("connection".to_string(), connection);
 
         // Set WiFi settings
-        wifi_settings.insert("ssid".to_string(), Value::from(config.ssid.as_bytes().to_vec()));
+        wifi_settings.insert(
+            "ssid".to_string(),
+            Value::from(config.ssid.as_bytes().to_vec()),
+        );
         wifi_settings.insert("mode".to_string(), Value::from("infrastructure"));
 
         // Set security settings based on security type
@@ -801,7 +883,13 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
         // Llamar al método AddAndActivateConnection con autoselección de NM
         let any_path = zbus::zvariant::OwnedObjectPath::try_from("/").unwrap();
-        let call_result: zbus::Result<(zbus::zvariant::OwnedObjectPath, zbus::zvariant::OwnedObjectPath)> = nm_proxy.call("AddAndActivateConnection", &(connection_settings, &any_path, &any_path));
+        let call_result: zbus::Result<(
+            zbus::zvariant::OwnedObjectPath,
+            zbus::zvariant::OwnedObjectPath,
+        )> = nm_proxy.call(
+            "AddAndActivateConnection",
+            &(connection_settings, &any_path, &any_path),
+        );
 
         match call_result {
             Ok((conn_path, active_path)) => {
@@ -884,15 +972,14 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                 "org.freedesktop.NetworkManager",
             ) {
                 if let Ok(signal) = proxy.receive_signal("StateChanged") {
-                    let proxy_props = zbus::blocking::fdo::PropertiesProxy::builder(
-                        &connection_clone,
-                    )
-                    .destination("org.freedesktop.NetworkManager")
-                    .unwrap()
-                    .path("/org/freedesktop/NetworkManager")
-                    .unwrap()
-                    .build()
-                    .unwrap();
+                    let proxy_props =
+                        zbus::blocking::fdo::PropertiesProxy::builder(&connection_clone)
+                            .destination("org.freedesktop.NetworkManager")
+                            .unwrap()
+                            .path("/org/freedesktop/NetworkManager")
+                            .unwrap()
+                            .build()
+                            .unwrap();
 
                     for _msg in signal {
                         let network_manager = VSKNetworkManager {
@@ -901,9 +988,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                             app: app_handle.clone(),
                         };
 
-                        if let Ok(network_info) =
-                            network_manager.get_current_network_state()
-                        {
+                        if let Ok(network_info) = network_manager.get_current_network_state() {
                             if tx.send(network_info).is_err() {
                                 break;
                             }
@@ -984,9 +1069,9 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
             // Verificar si es una conexión WiFi
             if let Some(connection) = settings.get("connection") {
-                let connection_dict = match connection.downcast_ref::<Value>()
-                    .and_then(|v| v.downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>())
-                {
+                let connection_dict = match connection.downcast_ref::<Value>().and_then(|v| {
+                    v.downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>()
+                }) {
                     Ok(dict) => dict,
                     _ => continue,
                 };
@@ -1103,9 +1188,9 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
             // Verificar si es una conexión WiFi
             if let Some(connection) = settings.get("connection") {
-                let connection_dict = match connection.downcast_ref::<Value>()
-                    .and_then(|v| v.downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>())
-                {
+                let connection_dict = match connection.downcast_ref::<Value>().and_then(|v| {
+                    v.downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>()
+                }) {
                     Ok(dict) => dict,
                     _ => continue,
                 };
@@ -1319,9 +1404,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         });
         status.active_profile_id = Some(id);
 
-        if let Ok(zbus::zvariant::Value::ObjectPath(ip4_path)) =
-            leer("Ip4Config")?.downcast_ref()
-        {
+        if let Ok(zbus::zvariant::Value::ObjectPath(ip4_path)) = leer("Ip4Config")?.downcast_ref() {
             if ip4_path.as_str() != "/" {
                 let ip4_props = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
                     .destination("org.freedesktop.NetworkManager")?
@@ -1434,7 +1517,9 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                 if msg.contains("secret") || msg.contains("authentication") {
                     Err(crate::error::NetworkError::VpnAuthFailed(e.to_string()))
                 } else {
-                    Err(crate::error::NetworkError::VpnActivationFailed(e.to_string()))
+                    Err(crate::error::NetworkError::VpnActivationFailed(
+                        e.to_string(),
+                    ))
                 }
             }
         }
@@ -1565,7 +1650,10 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             vpn_section.insert("key".to_string(), Value::from(private_key_path));
         }
         if let Some(private_key_password) = config.private_key_password {
-            vpn_section.insert("key-password".to_string(), Value::from(private_key_password));
+            vpn_section.insert(
+                "key-password".to_string(),
+                Value::from(private_key_password),
+            );
         }
         if let Some(custom_settings) = config.settings {
             for (k, v) in custom_settings {
@@ -1636,9 +1724,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             settings.insert(section_name.clone(), section_map);
         }
 
-        let connection_section = settings
-            .entry("connection".to_string())
-            .or_default();
+        let connection_section = settings.entry("connection".to_string()).or_default();
         connection_section.insert(
             "id".to_string(),
             Value::from(config.id.clone().unwrap_or(existing_profile.id.clone())),
@@ -1657,9 +1743,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                 Self::service_type_from_vpn_type(&existing_profile.vpn_type).to_string()
             });
 
-        let vpn_section = settings
-            .entry("vpn".to_string())
-            .or_default();
+        let vpn_section = settings.entry("vpn".to_string()).or_default();
         vpn_section.insert("service-type".to_string(), Value::from(service_type));
 
         let mut merged_settings = existing_vpn_settings;
@@ -1704,9 +1788,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         if merged_secrets.is_empty() {
             settings.remove("vpn-secrets");
         } else {
-            let vpn_secrets_section = settings
-                .entry("vpn-secrets".to_string())
-                .or_default();
+            let vpn_secrets_section = settings.entry("vpn-secrets".to_string()).or_default();
             vpn_secrets_section.clear();
             for (k, v) in merged_secrets {
                 vpn_secrets_section.insert(k, Value::from(v));
@@ -1770,7 +1852,10 @@ mod tests {
     fn un_tun_ajeno_tambien_es_una_vpn() {
         type NM = VSKNetworkManager<'static, tauri::Wry>;
 
-        assert!(NM::tunnel_priority("tun").is_some(), "Twingate quedaba afuera");
+        assert!(
+            NM::tunnel_priority("tun").is_some(),
+            "Twingate quedaba afuera"
+        );
         assert!(NM::tunnel_priority("wireguard").is_some());
         assert!(NM::tunnel_priority("vpn").is_some());
 
@@ -1806,8 +1891,10 @@ mod tests {
 
         let conexion = zbus::blocking::Connection::system().expect("sin bus del sistema");
         let nm = zbus::blocking::fdo::PropertiesProxy::builder(&conexion)
-            .destination("org.freedesktop.NetworkManager").unwrap()
-            .path("/org/freedesktop/NetworkManager").unwrap()
+            .destination("org.freedesktop.NetworkManager")
+            .unwrap()
+            .path("/org/freedesktop/NetworkManager")
+            .unwrap()
             .build()
             .expect("NetworkManager no está");
 
@@ -1821,10 +1908,14 @@ mod tests {
         let mut encontrados = Vec::new();
         if let Ok(Value::Array(arr)) = activas.downcast_ref() {
             for valor in arr.iter() {
-                let Value::ObjectPath(ruta) = valor else { continue };
+                let Value::ObjectPath(ruta) = valor else {
+                    continue;
+                };
                 let props = zbus::blocking::fdo::PropertiesProxy::builder(&conexion)
-                    .destination("org.freedesktop.NetworkManager").unwrap()
-                    .path(ruta).unwrap()
+                    .destination("org.freedesktop.NetworkManager")
+                    .unwrap()
+                    .path(ruta)
+                    .unwrap()
                     .build()
                     .unwrap();
                 let leer = |p: &'static str| {
@@ -1865,13 +1956,161 @@ mod tests {
     fn los_tuneles_conocidos_se_muestran_con_su_nombre() {
         type NM = VSKNetworkManager<'static, tauri::Wry>;
 
-        assert_eq!(NM::tunnel_display_name("sdwan0", Some("sdwan0")), "Twingate");
-        assert_eq!(NM::tunnel_display_name("tailscale0", Some("tailscale0")), "Tailscale");
+        assert_eq!(
+            NM::tunnel_display_name("sdwan0", Some("sdwan0")),
+            "Twingate"
+        );
+        assert_eq!(
+            NM::tunnel_display_name("tailscale0", Some("tailscale0")),
+            "Tailscale"
+        );
         assert_eq!(NM::tunnel_display_name("wg0", Some("wg0")), "WireGuard");
 
         // Uno desconocido conserva el nombre que le puso NetworkManager: es
         // menos de lo que querríamos, pero muchísimo más que decir que no hay
         // ninguna VPN.
         assert_eq!(NM::tunnel_display_name("Oficina", Some("tun0")), "Oficina");
+    }
+
+    /// Guardia de la regresión que motivó `fix/wifi-scan-wait`: antes `rescan_wifi`
+    /// leía los `AccessPoints` apenas `RequestScan` contestaba, o sea la lista del
+    /// barrido *anterior* —vacía recién encendido el WiFi—, y "no encontraba nada".
+    /// El arreglo espera a que `LastScan` avance; `scan_settled` es quien decide si
+    /// el barrido terminó, y estos casos clavan su contrato:
+    ///
+    /// - mismo valor ⇒ sigue el barrido viejo, hay que esperar (false);
+    /// - valor mayor ⇒ terminó uno nuevo, se puede leer (true);
+    /// - `-1` ("nunca escaneó") NUNCA cuenta como terminado, aunque haya cambiado:
+    ///   ese es exactamente el estado que devolvía la lista vacía, así que si
+    ///   alguien vuelve a tratar al `-1` como "listo" este test se pone en rojo.
+    #[test]
+    fn scan_settled_solo_es_cierto_cuando_termino_un_barrido_nuevo() {
+        type NM = VSKNetworkManager<'static, tauri::Wry>;
+
+        // El mismo barrido de antes: todavía no terminó nada, hay que esperar.
+        assert!(
+            !NM::scan_settled(1000, 1000),
+            "con el mismo LastScan no hay barrido nuevo: no se puede leer todavía"
+        );
+
+        // `LastScan` avanzó: terminó un barrido nuevo y recién ahí se lee la lista.
+        assert!(
+            NM::scan_settled(1000, 1500),
+            "LastScan avanzó: el barrido terminó y la lista ya es la fresca"
+        );
+
+        // `-1` es "nunca escaneó": no importa desde dónde se espere, nunca está
+        // listo. Es el caso que devolvía la lista vacía recién encendido el WiFi.
+        assert!(
+            !NM::scan_settled(-1, -1),
+            "«nunca escaneó» no es un barrido terminado"
+        );
+        assert!(
+            !NM::scan_settled(1000, -1),
+            "volver a -1 (reset del contador) no es un barrido terminado: la regresión"
+        );
+    }
+
+    /// Contra el NetworkManager de verdad: pedir un barrido y comprobar que
+    /// `LastScan` avanza dentro del tope, que es justo lo que `rescan_wifi` espera
+    /// antes de leer la lista. Reproduce el ciclo a bajo nivel —leer `LastScan`,
+    /// `RequestScan`, volver a leer— porque construir un `VSKNetworkManager`
+    /// necesita un `AppHandle` de Tauri que en un test no existe.
+    ///
+    /// Ignorado por defecto: necesita un sistema con NetworkManager y una placa
+    /// inalámbrica. `cargo test -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn el_barrido_real_hace_avanzar_last_scan() {
+        type NM = VSKNetworkManager<'static, tauri::Wry>;
+        use zbus::names::InterfaceName;
+        use zbus::zvariant::Value;
+
+        let conexion = zbus::blocking::Connection::system().expect("sin bus del sistema");
+        let nm = zbus::blocking::fdo::PropertiesProxy::builder(&conexion)
+            .destination("org.freedesktop.NetworkManager")
+            .unwrap()
+            .path("/org/freedesktop/NetworkManager")
+            .unwrap()
+            .build()
+            .expect("NetworkManager no está");
+
+        let devices = nm
+            .get(
+                InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager"),
+                "Devices",
+            )
+            .unwrap();
+
+        // Primer dispositivo inalámbrico (DeviceType == 2).
+        let mut wireless_path = None;
+        if let Ok(Value::Array(arr)) = devices.downcast_ref() {
+            for valor in arr.iter() {
+                let Value::ObjectPath(ruta) = valor else {
+                    continue;
+                };
+                let props = zbus::blocking::fdo::PropertiesProxy::builder(&conexion)
+                    .destination("org.freedesktop.NetworkManager")
+                    .unwrap()
+                    .path(ruta)
+                    .unwrap()
+                    .build()
+                    .unwrap();
+                let tipo = props.get(
+                    InterfaceName::from_static_str_unchecked(
+                        "org.freedesktop.NetworkManager.Device",
+                    ),
+                    "DeviceType",
+                );
+                if let Ok(valor) = tipo {
+                    if let Ok(Value::U32(2)) = valor.downcast_ref() {
+                        wireless_path = Some(ruta.to_string());
+                        break;
+                    }
+                }
+            }
+        }
+
+        let ruta = wireless_path.expect("no hay placa inalámbrica; este test la necesita");
+
+        let props = zbus::blocking::fdo::PropertiesProxy::builder(&conexion)
+            .destination("org.freedesktop.NetworkManager")
+            .unwrap()
+            .path(ruta.as_str())
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let antes = NM::read_last_scan(&props);
+        println!("LastScan antes del barrido: {antes}");
+
+        let wireless_proxy = zbus::blocking::Proxy::new(
+            &conexion,
+            "org.freedesktop.NetworkManager",
+            ruta.as_str(),
+            "org.freedesktop.NetworkManager.Device.Wireless",
+        )
+        .unwrap();
+        let options: std::collections::HashMap<String, zbus::zvariant::OwnedValue> =
+            std::collections::HashMap::new();
+        // Puede negarse si hay un barrido en curso: no es error, igual esperamos.
+        let _ = wireless_proxy.call::<_, _, ()>("RequestScan", &(options,));
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let mut settled = false;
+        while std::time::Instant::now() < deadline {
+            let ahora = NM::read_last_scan(&props);
+            if NM::scan_settled(antes, ahora) {
+                println!("LastScan avanzó a {ahora}: el barrido terminó");
+                settled = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }
+
+        assert!(
+            settled,
+            "LastScan no avanzó en 10 s: o la lógica de espera está rota o NM no barrió"
+        );
     }
 }
