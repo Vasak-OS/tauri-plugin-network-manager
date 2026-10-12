@@ -737,6 +737,12 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             ));
         }
 
+        // ¿Algún dispositivo llegó a completar un barrido? Si ninguno lo hizo,
+        // la lista que devolveríamos sería la vieja, y el contrato del comando es
+        // entregar una fresca: en ese caso es un error, no un éxito con datos
+        // rancios.
+        let mut any_settled = false;
+
         for device_path in &devices {
             let wireless_props = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
                 .destination("org.freedesktop.NetworkManager")?
@@ -764,10 +770,17 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             let deadline = std::time::Instant::now() + SCAN_TIMEOUT;
             while std::time::Instant::now() < deadline {
                 if Self::scan_settled(last_scan_before, Self::read_last_scan(&wireless_props)) {
+                    any_settled = true;
                     break;
                 }
                 std::thread::sleep(SCAN_POLL);
             }
+        }
+
+        if !any_settled {
+            return Err(crate::error::NetworkError::OperationError(
+                "WiFi scan did not complete on any wireless device".to_string(),
+            ));
         }
 
         self.list_wifi_networks()
