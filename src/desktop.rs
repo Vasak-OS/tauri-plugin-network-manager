@@ -692,8 +692,43 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         Ok(paths)
     }
 
+    /// ¿El barrido ya terminó? NetworkManager marca el fin subiendo `LastScan`
+    /// por encima del valor que tenía antes de que lo pidiéramos. `-1` es "nunca
+    /// escaneó", así que nunca cuenta como terminado: seguimos esperando.
+    fn scan_settled(before: i64, current: i64) -> bool {
+        current != -1 && current != before
+    }
+
+    /// Lee `LastScan` (milisegundos de CLOCK_BOOTTIME, `-1` si nunca) de un
+    /// dispositivo inalámbrico. Cualquier fallo de lectura se devuelve como `-1`
+    /// para que el que espera siga esperando en vez de darse por satisfecho con
+    /// una lista a medio cocinar.
+    fn read_last_scan(props: &zbus::blocking::fdo::PropertiesProxy) -> i64 {
+        match props.get(
+            InterfaceName::from_static_str_unchecked(
+                "org.freedesktop.NetworkManager.Device.Wireless",
+            ),
+            "LastScan",
+        ) {
+            Ok(value) => match value.downcast_ref() {
+                Ok(zbus::zvariant::Value::I64(last)) => last,
+                _ => -1,
+            },
+            Err(_) => -1,
+        }
+    }
+
     /// Request an explicit WiFi scan through NetworkManager and return a fresh list.
+    ///
+    /// `RequestScan` es "dispará y olvidate": NetworkManager arranca el barrido en
+    /// segundo plano y contesta en el acto, mientras el rastreo real tarda varios
+    /// segundos. Antes leíamos los `AccessPoints` apenas contestaba —o sea, la
+    /// lista del barrido *anterior*, vacía recién encendido el WiFi—, y por eso
+    /// "no encontraba nada". Ahora esperamos a que `LastScan` avance antes de leer.
     pub fn rescan_wifi(&self) -> Result<Vec<NetworkInfo>> {
+        const SCAN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+        const SCAN_POLL: std::time::Duration = std::time::Duration::from_millis(300);
+
         let devices = self.wireless_device_paths()?;
 
         if devices.is_empty() {
@@ -703,6 +738,14 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         }
 
         for device_path in &devices {
+            let wireless_props = zbus::blocking::fdo::PropertiesProxy::builder(&self.connection)
+                .destination("org.freedesktop.NetworkManager")?
+                .path(device_path.as_str())?
+                .build()?;
+
+            // Desde qué barrido estamos esperando el siguiente.
+            let last_scan_before = Self::read_last_scan(&wireless_props);
+
             let wireless_proxy = zbus::blocking::Proxy::new(
                 &self.connection,
                 "org.freedesktop.NetworkManager",
@@ -710,15 +753,24 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                 "org.freedesktop.NetworkManager.Device.Wireless",
             )?;
 
+            // `RequestScan` puede negarse si ya hay un barrido en curso o si el
+            // anterior fue hace muy poco. En los dos casos igual queremos esperar
+            // a que `LastScan` avance y leer recién entonces, así que no es un
+            // error: lo ignoramos a propósito.
             let options: HashMap<String, zbus::zvariant::OwnedValue> = HashMap::new();
-            if wireless_proxy.call::<_, _, ()>("RequestScan", &(options,)).is_ok() {
-                return self.list_wifi_networks();
+            let _ = wireless_proxy.call::<_, _, ()>("RequestScan", &(options,));
+
+            // Esperar a que el barrido termine antes de leer la lista.
+            let deadline = std::time::Instant::now() + SCAN_TIMEOUT;
+            while std::time::Instant::now() < deadline {
+                if Self::scan_settled(last_scan_before, Self::read_last_scan(&wireless_props)) {
+                    break;
+                }
+                std::thread::sleep(SCAN_POLL);
             }
         }
 
-        Err(crate::error::NetworkError::OperationError(
-            "Failed to request WiFi scan on available wireless devices".to_string(),
-        ))
+        self.list_wifi_networks()
     }
 
     /// Connect to a WiFi network
@@ -1873,5 +1925,139 @@ mod tests {
         // menos de lo que querríamos, pero muchísimo más que decir que no hay
         // ninguna VPN.
         assert_eq!(NM::tunnel_display_name("Oficina", Some("tun0")), "Oficina");
+    }
+
+    /// Guardia de la regresión que motivó `fix/wifi-scan-wait`: antes `rescan_wifi`
+    /// leía los `AccessPoints` apenas `RequestScan` contestaba, o sea la lista del
+    /// barrido *anterior* —vacía recién encendido el WiFi—, y "no encontraba nada".
+    /// El arreglo espera a que `LastScan` avance; `scan_settled` es quien decide si
+    /// el barrido terminó, y estos casos clavan su contrato:
+    ///
+    /// - mismo valor ⇒ sigue el barrido viejo, hay que esperar (false);
+    /// - valor mayor ⇒ terminó uno nuevo, se puede leer (true);
+    /// - `-1` ("nunca escaneó") NUNCA cuenta como terminado, aunque haya cambiado:
+    ///   ese es exactamente el estado que devolvía la lista vacía, así que si
+    ///   alguien vuelve a tratar al `-1` como "listo" este test se pone en rojo.
+    #[test]
+    fn scan_settled_solo_es_cierto_cuando_termino_un_barrido_nuevo() {
+        type NM = VSKNetworkManager<'static, tauri::Wry>;
+
+        // El mismo barrido de antes: todavía no terminó nada, hay que esperar.
+        assert!(
+            !NM::scan_settled(1000, 1000),
+            "con el mismo LastScan no hay barrido nuevo: no se puede leer todavía"
+        );
+
+        // `LastScan` avanzó: terminó un barrido nuevo y recién ahí se lee la lista.
+        assert!(
+            NM::scan_settled(1000, 1500),
+            "LastScan avanzó: el barrido terminó y la lista ya es la fresca"
+        );
+
+        // `-1` es "nunca escaneó": no importa desde dónde se espere, nunca está
+        // listo. Es el caso que devolvía la lista vacía recién encendido el WiFi.
+        assert!(
+            !NM::scan_settled(-1, -1),
+            "«nunca escaneó» no es un barrido terminado"
+        );
+        assert!(
+            !NM::scan_settled(1000, -1),
+            "volver a -1 (reset del contador) no es un barrido terminado: la regresión"
+        );
+    }
+
+    /// Contra el NetworkManager de verdad: pedir un barrido y comprobar que
+    /// `LastScan` avanza dentro del tope, que es justo lo que `rescan_wifi` espera
+    /// antes de leer la lista. Reproduce el ciclo a bajo nivel —leer `LastScan`,
+    /// `RequestScan`, volver a leer— porque construir un `VSKNetworkManager`
+    /// necesita un `AppHandle` de Tauri que en un test no existe.
+    ///
+    /// Ignorado por defecto: necesita un sistema con NetworkManager y una placa
+    /// inalámbrica. `cargo test -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn el_barrido_real_hace_avanzar_last_scan() {
+        type NM = VSKNetworkManager<'static, tauri::Wry>;
+        use zbus::names::InterfaceName;
+        use zbus::zvariant::Value;
+
+        let conexion = zbus::blocking::Connection::system().expect("sin bus del sistema");
+        let nm = zbus::blocking::fdo::PropertiesProxy::builder(&conexion)
+            .destination("org.freedesktop.NetworkManager").unwrap()
+            .path("/org/freedesktop/NetworkManager").unwrap()
+            .build()
+            .expect("NetworkManager no está");
+
+        let devices = nm
+            .get(
+                InterfaceName::from_static_str_unchecked("org.freedesktop.NetworkManager"),
+                "Devices",
+            )
+            .unwrap();
+
+        // Primer dispositivo inalámbrico (DeviceType == 2).
+        let mut wireless_path = None;
+        if let Ok(Value::Array(arr)) = devices.downcast_ref() {
+            for valor in arr.iter() {
+                let Value::ObjectPath(ruta) = valor else { continue };
+                let props = zbus::blocking::fdo::PropertiesProxy::builder(&conexion)
+                    .destination("org.freedesktop.NetworkManager").unwrap()
+                    .path(ruta).unwrap()
+                    .build()
+                    .unwrap();
+                let tipo = props.get(
+                    InterfaceName::from_static_str_unchecked(
+                        "org.freedesktop.NetworkManager.Device",
+                    ),
+                    "DeviceType",
+                );
+                if let Ok(valor) = tipo {
+                    if let Ok(Value::U32(2)) = valor.downcast_ref() {
+                        wireless_path = Some(ruta.to_string());
+                        break;
+                    }
+                }
+            }
+        }
+
+        let ruta = wireless_path.expect("no hay placa inalámbrica; este test la necesita");
+
+        let props = zbus::blocking::fdo::PropertiesProxy::builder(&conexion)
+            .destination("org.freedesktop.NetworkManager").unwrap()
+            .path(ruta.as_str()).unwrap()
+            .build()
+            .unwrap();
+
+        let antes = NM::read_last_scan(&props);
+        println!("LastScan antes del barrido: {antes}");
+
+        let wireless_proxy = zbus::blocking::Proxy::new(
+            &conexion,
+            "org.freedesktop.NetworkManager",
+            ruta.as_str(),
+            "org.freedesktop.NetworkManager.Device.Wireless",
+        )
+        .unwrap();
+        let options: std::collections::HashMap<String, zbus::zvariant::OwnedValue> =
+            std::collections::HashMap::new();
+        // Puede negarse si hay un barrido en curso: no es error, igual esperamos.
+        let _ = wireless_proxy.call::<_, _, ()>("RequestScan", &(options,));
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let mut settled = false;
+        while std::time::Instant::now() < deadline {
+            let ahora = NM::read_last_scan(&props);
+            if NM::scan_settled(antes, ahora) {
+                println!("LastScan avanzó a {ahora}: el barrido terminó");
+                settled = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }
+
+        assert!(
+            settled,
+            "LastScan no avanzó en 10 s: o la lógica de espera está rota o NM no barrió"
+        );
     }
 }
