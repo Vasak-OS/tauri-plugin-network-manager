@@ -1197,10 +1197,15 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                     if let Some(wireless_dict) = settings.get("802-11-wireless") {
                         if let Some(ssid_value) = wireless_dict.get("ssid") {
                             let v_ssid: &zbus::zvariant::Value<'_> = ssid_value;
-                            let conn_ssid_str = NetworkManagerHelpers::ssid_from_value(v_ssid);
-                            if conn_ssid_str == ssid {
-                                target_conn_path = Some(conn_path.clone());
-                                break;
+                            // Comparar bytes crudos del SSID para evitar colisiones por from_utf8_lossy
+                            if let Some(saved_bytes) =
+                                NetworkManagerHelpers::ssid_bytes_from_value(v_ssid)
+                            {
+                                let input_bytes = ssid.as_bytes();
+                                if saved_bytes == input_bytes {
+                                    target_conn_path = Some(conn_path.clone());
+                                    break;
+                                }
                             }
                         }
                     }
