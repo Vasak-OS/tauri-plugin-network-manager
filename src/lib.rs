@@ -1,5 +1,5 @@
 use commands::{
-    connect_to_wifi, connect_vpn, create_vpn_profile, delete_vpn_profile, delete_wifi_connection,
+    activate_saved_wifi, connect_to_wifi, connect_vpn, create_vpn_profile, delete_vpn_profile, delete_wifi_connection,
     disconnect_from_wifi, disconnect_vpn, get_network_state, get_vpn_status,
     get_saved_wifi_networks, list_wifi_networks, rescan_wifi, toggle_network_state,
     get_wireless_enabled, list_vpn_profiles, set_wireless_enabled, is_wireless_available,
@@ -281,6 +281,14 @@ impl<R: Runtime> NetworkManagerState<R> {
         }
     }
 
+    pub fn activate_saved_wifi(&self, ssid: &str) -> Result<(), NetworkError> {
+        let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
+        match manager.as_ref() {
+            Some(manager) => manager.activate_saved_wifi(ssid),
+            _none => Err(NetworkError::NotInitialized),
+        }
+    }
+
     pub fn toggle_network_state(&self, enabled: bool) -> Result<bool, NetworkError> {
         let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
         match manager.as_ref() {
@@ -428,6 +436,7 @@ pub fn init() -> TauriPlugin<tauri::Wry> {
             connect_to_wifi,
             disconnect_from_wifi,
             get_saved_wifi_networks,
+            activate_saved_wifi,
             rescan_wifi,
             delete_wifi_connection,
             toggle_network_state,

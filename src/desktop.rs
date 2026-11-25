@@ -1158,6 +1158,111 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         Ok(saved_networks)
     }
 
+    /// Find and activate a saved WiFi connection by SSID.
+    ///
+    /// This uses NetworkManager's `ActivateConnection` on the existing saved
+    /// connection (by UUID), so it reuses the stored secrets instead of creating
+    /// a new connection without credentials.
+    pub fn activate_saved_wifi(&self, ssid: &str) -> Result<()> {
+        // Find the saved connection by SSID
+        let settings_proxy = zbus::blocking::Proxy::new(
+            &self.connection,
+            "org.freedesktop.NetworkManager",
+            "/org/freedesktop/NetworkManager/Settings",
+            "org.freedesktop.NetworkManager.Settings",
+        )?;
+
+        let connections: Vec<zbus::zvariant::OwnedObjectPath> =
+            settings_proxy.call("ListConnections", &())?;
+
+        let mut target_conn_path: Option<zbus::zvariant::OwnedObjectPath> = None;
+
+        for conn_path in connections {
+            let conn_proxy = zbus::blocking::Proxy::new(
+                &self.connection,
+                "org.freedesktop.NetworkManager",
+                conn_path.as_str(),
+                "org.freedesktop.NetworkManager.Settings.Connection",
+            )?;
+
+            let settings: std::collections::HashMap<String, zbus::zvariant::OwnedValue> =
+                conn_proxy.call("GetSettings", &())?;
+
+            if let Some(connection) = settings.get("connection") {
+                let connection_dict = match connection.downcast_ref::<Value>().and_then(|v| {
+                    v.downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>()
+                }) {
+                    Ok(dict) => dict,
+                    _ => continue,
+                };
+
+                if let Some(conn_type) = connection_dict.get("type") {
+                    let v_type: &zbus::zvariant::Value<'_> = conn_type;
+                    let conn_type_str = match v_type.downcast_ref::<String>() {
+                        Ok(s) => s,
+                        _ => continue,
+                    };
+
+                    if conn_type_str == "802-11-wireless" {
+                        if let Some(wireless) = settings.get("802-11-wireless") {
+                            let wireless_dict = match wireless.downcast_ref::<Value>()
+                                .and_then(|v| v.downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>())
+                            {
+                                Ok(dict) => dict,
+                                _ => continue,
+                            };
+
+                            if let Some(ssid_value) = wireless_dict.get("ssid") {
+                                let v_ssid: &zbus::zvariant::Value<'_> = ssid_value;
+                                let conn_ssid_str = NetworkManagerHelpers::ssid_from_value(v_ssid);
+                                if conn_ssid_str == ssid {
+                                    target_conn_path = Some(conn_path.clone());
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let conn_path = target_conn_path.ok_or_else(|| crate::error::NetworkError::OperationError(
+            format!("No saved WiFi connection found for SSID '{}'", ssid)
+        ))?;
+
+        // Activate the existing saved connection
+        let nm_proxy = zbus::blocking::Proxy::new(
+            &self.connection,
+            "org.freedesktop.NetworkManager",
+            "/org/freedesktop/NetworkManager",
+            "org.freedesktop.NetworkManager",
+        )?;
+
+        let any_path = zbus::zvariant::OwnedObjectPath::try_from("/").unwrap();
+        let call_result: zbus::Result<zbus::zvariant::OwnedObjectPath> =
+            nm_proxy.call("ActivateConnection", &(&conn_path, &any_path, &any_path));
+
+        match call_result {
+            Ok(active_path) => {
+                log::info!(
+                    "ActivateConnection succeeded for ssid='{}' conn='{}' active='{}'",
+                    ssid,
+                    conn_path.as_str(),
+                    active_path.as_str()
+                );
+                Ok(())
+            }
+            Err(e) => {
+                log::error!(
+                    "ActivateConnection failed for ssid='{}': {:?}",
+                    ssid,
+                    e
+                );
+                Err(e.into())
+            }
+        }
+    }
+
     /// Delete a saved WiFi connection by SSID
     pub fn delete_wifi_connection(&self, ssid: &str) -> Result<bool> {
         // Crear un proxy para el servicio de configuración de NetworkManager

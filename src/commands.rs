@@ -121,6 +121,17 @@ pub async fn delete_wifi_connection(app_handle: AppHandle, ssid: String) -> Resu
     .await
 }
 
+/// Activate a saved WiFi connection by SSID (reuses stored secrets)
+#[tauri::command]
+pub async fn activate_saved_wifi(app_handle: AppHandle, ssid: String) -> Result<()>  {
+    off_thread(move || {
+        let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
+        state.activate_saved_wifi(&ssid)?;
+        Ok(())
+    })
+    .await
+}
+
 /// Toggle network on or off
 #[tauri::command]
 pub async fn toggle_network_state(app_handle: AppHandle, enabled: bool) -> Result<()>  {
