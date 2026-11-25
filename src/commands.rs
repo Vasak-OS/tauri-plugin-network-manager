@@ -1,10 +1,10 @@
 use tauri::{AppHandle, Manager};
 
-use crate::{NetworkError, NetworkManagerState};
-use crate::models::{
-    NetworkInfo, WiFiConnectionConfig, VpnCreateConfig, VpnProfile, VpnStatus, VpnUpdateConfig,
-};
 use crate::error::Result;
+use crate::models::{
+    NetworkInfo, VpnCreateConfig, VpnProfile, VpnStatus, VpnUpdateConfig, WiFiConnectionConfig,
+};
+use crate::{NetworkError, NetworkManagerState};
 
 /// Runs NetworkManager work off the caller's thread.
 ///
@@ -25,23 +25,18 @@ where
 {
     tauri::async_runtime::spawn_blocking(work)
         .await
-        .map_err(|error| {
-            NetworkError::OperationError(format!("network task failed: {error}"))
-        })?
+        .map_err(|error| NetworkError::OperationError(format!("network task failed: {error}")))?
 }
 
 /// Get the current network state
 #[tauri::command]
-pub async fn get_network_state(app_handle: AppHandle) -> Result<NetworkInfo>  {
+pub async fn get_network_state(app_handle: AppHandle) -> Result<NetworkInfo> {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
         let manager = state.manager.read().map_err(|_| NetworkError::LockError)?;
 
         match manager.as_ref() {
-            Some(manager) => {
-                
-                manager.get_current_network_state()
-            },
+            Some(manager) => manager.get_current_network_state(),
             _ => Err(NetworkError::NotInitialized),
         }
     })
@@ -54,7 +49,7 @@ pub async fn list_wifi_networks(
     app_handle: AppHandle,
     force_refresh: Option<bool>,
     ttl_ms: Option<u64>,
-) -> Result<Vec<NetworkInfo>>  {
+) -> Result<Vec<NetworkInfo>> {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
         state.list_wifi_networks(force_refresh.unwrap_or(false), ttl_ms)
@@ -64,7 +59,7 @@ pub async fn list_wifi_networks(
 
 /// Trigger a WiFi rescan and return a fresh list
 #[tauri::command]
-pub async fn rescan_wifi(app_handle: AppHandle) -> Result<Vec<NetworkInfo>>  {
+pub async fn rescan_wifi(app_handle: AppHandle) -> Result<Vec<NetworkInfo>> {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
         state.rescan_wifi()
@@ -74,7 +69,7 @@ pub async fn rescan_wifi(app_handle: AppHandle) -> Result<Vec<NetworkInfo>>  {
 
 /// Connect to a WiFi network
 #[tauri::command]
-pub async fn connect_to_wifi(app_handle: AppHandle, config: WiFiConnectionConfig) -> Result<()>  {
+pub async fn connect_to_wifi(app_handle: AppHandle, config: WiFiConnectionConfig) -> Result<()> {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
         state.connect_to_wifi(config)?;
@@ -85,7 +80,7 @@ pub async fn connect_to_wifi(app_handle: AppHandle, config: WiFiConnectionConfig
 
 /// Disconnect from the current WiFi network
 #[tauri::command]
-pub async fn disconnect_from_wifi(app_handle: AppHandle) -> Result<()>  {
+pub async fn disconnect_from_wifi(app_handle: AppHandle) -> Result<()> {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
         state.disconnect_from_wifi()?;
@@ -96,7 +91,7 @@ pub async fn disconnect_from_wifi(app_handle: AppHandle) -> Result<()>  {
 
 /// Get saved WiFi networks
 #[tauri::command]
-pub async fn get_saved_wifi_networks(app_handle: AppHandle) -> Result<Vec<NetworkInfo>>  {
+pub async fn get_saved_wifi_networks(app_handle: AppHandle) -> Result<Vec<NetworkInfo>> {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
         state.get_saved_wifi_networks()
@@ -106,7 +101,7 @@ pub async fn get_saved_wifi_networks(app_handle: AppHandle) -> Result<Vec<Networ
 
 /// Delete a WiFi connection by SSID
 #[tauri::command]
-pub async fn delete_wifi_connection(app_handle: AppHandle, ssid: String) -> Result<()>  {
+pub async fn delete_wifi_connection(app_handle: AppHandle, ssid: String) -> Result<()> {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
         let deleted = state.delete_wifi_connection(&ssid)?;
@@ -123,7 +118,7 @@ pub async fn delete_wifi_connection(app_handle: AppHandle, ssid: String) -> Resu
 
 /// Activate a saved WiFi connection by SSID (reuses stored secrets)
 #[tauri::command]
-pub async fn activate_saved_wifi(app_handle: AppHandle, ssid: String) -> Result<()>  {
+pub async fn activate_saved_wifi(app_handle: AppHandle, ssid: String) -> Result<()> {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
         state.activate_saved_wifi(&ssid)?;
@@ -134,7 +129,7 @@ pub async fn activate_saved_wifi(app_handle: AppHandle, ssid: String) -> Result<
 
 /// Toggle network on or off
 #[tauri::command]
-pub async fn toggle_network_state(app_handle: AppHandle, enabled: bool) -> Result<()>  {
+pub async fn toggle_network_state(app_handle: AppHandle, enabled: bool) -> Result<()> {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
         state.toggle_network_state(enabled)?;
@@ -144,7 +139,7 @@ pub async fn toggle_network_state(app_handle: AppHandle, enabled: bool) -> Resul
 }
 
 #[tauri::command]
-pub async fn get_wireless_enabled(app_handle: AppHandle) -> Result<bool>  {
+pub async fn get_wireless_enabled(app_handle: AppHandle) -> Result<bool> {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
         state.get_wireless_enabled()
@@ -153,7 +148,7 @@ pub async fn get_wireless_enabled(app_handle: AppHandle) -> Result<bool>  {
 }
 
 #[tauri::command]
-pub async fn set_wireless_enabled(app_handle: AppHandle, enabled: bool) -> Result<()>  {
+pub async fn set_wireless_enabled(app_handle: AppHandle, enabled: bool) -> Result<()> {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
         state.set_wireless_enabled(enabled)
@@ -162,7 +157,7 @@ pub async fn set_wireless_enabled(app_handle: AppHandle, enabled: bool) -> Resul
 }
 
 #[tauri::command]
-pub async fn is_wireless_available(app_handle: AppHandle) -> Result<bool>  {
+pub async fn is_wireless_available(app_handle: AppHandle) -> Result<bool> {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
         state.is_wireless_available()
@@ -172,7 +167,7 @@ pub async fn is_wireless_available(app_handle: AppHandle) -> Result<bool>  {
 
 /// Get network statistics for the active interface
 #[tauri::command]
-pub async fn get_network_stats(app_handle: AppHandle) -> Result<crate::models::NetworkStats>  {
+pub async fn get_network_stats(app_handle: AppHandle) -> Result<crate::models::NetworkStats> {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
         state.get_network_stats()
@@ -182,16 +177,13 @@ pub async fn get_network_stats(app_handle: AppHandle) -> Result<crate::models::N
 
 /// Get list of available network interfaces
 #[tauri::command]
-pub async fn get_network_interfaces() -> Result<Vec<String>>  {
-    off_thread(move || {
-        crate::network_stats::get_network_interfaces()
-    })
-    .await
+pub async fn get_network_interfaces() -> Result<Vec<String>> {
+    off_thread(move || crate::network_stats::get_network_interfaces()).await
 }
 
 /// List saved VPN profiles
 #[tauri::command]
-pub async fn list_vpn_profiles(app_handle: AppHandle) -> Result<Vec<VpnProfile>>  {
+pub async fn list_vpn_profiles(app_handle: AppHandle) -> Result<Vec<VpnProfile>> {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
         state.list_vpn_profiles()
@@ -201,7 +193,7 @@ pub async fn list_vpn_profiles(app_handle: AppHandle) -> Result<Vec<VpnProfile>>
 
 /// Get current VPN status
 #[tauri::command]
-pub async fn get_vpn_status(app_handle: AppHandle) -> Result<VpnStatus>  {
+pub async fn get_vpn_status(app_handle: AppHandle) -> Result<VpnStatus> {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
         state.get_vpn_status()
@@ -211,7 +203,7 @@ pub async fn get_vpn_status(app_handle: AppHandle) -> Result<VpnStatus>  {
 
 /// Connect VPN by profile UUID
 #[tauri::command]
-pub async fn connect_vpn(app_handle: AppHandle, uuid: String) -> Result<()>  {
+pub async fn connect_vpn(app_handle: AppHandle, uuid: String) -> Result<()> {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
         state.connect_vpn(uuid)
@@ -221,7 +213,7 @@ pub async fn connect_vpn(app_handle: AppHandle, uuid: String) -> Result<()>  {
 
 /// Disconnect active VPN or specific profile UUID if provided
 #[tauri::command]
-pub async fn disconnect_vpn(app_handle: AppHandle, uuid: Option<String>) -> Result<()>  {
+pub async fn disconnect_vpn(app_handle: AppHandle, uuid: Option<String>) -> Result<()> {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
         state.disconnect_vpn(uuid)
@@ -231,7 +223,10 @@ pub async fn disconnect_vpn(app_handle: AppHandle, uuid: Option<String>) -> Resu
 
 /// Create a VPN profile
 #[tauri::command]
-pub async fn create_vpn_profile(app_handle: AppHandle, config: VpnCreateConfig) -> Result<VpnProfile>  {
+pub async fn create_vpn_profile(
+    app_handle: AppHandle,
+    config: VpnCreateConfig,
+) -> Result<VpnProfile> {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
         state.create_vpn_profile(config)
@@ -241,7 +236,10 @@ pub async fn create_vpn_profile(app_handle: AppHandle, config: VpnCreateConfig) 
 
 /// Update a VPN profile
 #[tauri::command]
-pub async fn update_vpn_profile(app_handle: AppHandle, config: VpnUpdateConfig) -> Result<VpnProfile>  {
+pub async fn update_vpn_profile(
+    app_handle: AppHandle,
+    config: VpnUpdateConfig,
+) -> Result<VpnProfile> {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
         state.update_vpn_profile(config)
@@ -251,7 +249,7 @@ pub async fn update_vpn_profile(app_handle: AppHandle, config: VpnUpdateConfig) 
 
 /// Delete VPN profile by UUID
 #[tauri::command]
-pub async fn delete_vpn_profile(app_handle: AppHandle, uuid: String) -> Result<()>  {
+pub async fn delete_vpn_profile(app_handle: AppHandle, uuid: String) -> Result<()> {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
         state.delete_vpn_profile(uuid)

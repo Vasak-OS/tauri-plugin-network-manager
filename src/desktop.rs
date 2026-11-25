@@ -1226,9 +1226,12 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
             }
         }
 
-        let conn_path = target_conn_path.ok_or_else(|| crate::error::NetworkError::OperationError(
-            format!("No saved WiFi connection found for SSID '{}'", ssid)
-        ))?;
+        let conn_path = target_conn_path.ok_or_else(|| {
+            crate::error::NetworkError::OperationError(format!(
+                "No saved WiFi connection found for SSID '{}'",
+                ssid
+            ))
+        })?;
 
         // Activate the existing saved connection
         let nm_proxy = zbus::blocking::Proxy::new(
@@ -1253,11 +1256,7 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                 Ok(())
             }
             Err(e) => {
-                log::error!(
-                    "ActivateConnection failed for ssid='{}': {:?}",
-                    ssid,
-                    e
-                );
+                log::error!("ActivateConnection failed for ssid='{}': {:?}", ssid, e);
                 Err(e.into())
             }
         }

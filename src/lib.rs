@@ -1,9 +1,9 @@
 use commands::{
-    activate_saved_wifi, connect_to_wifi, connect_vpn, create_vpn_profile, delete_vpn_profile, delete_wifi_connection,
-    disconnect_from_wifi, disconnect_vpn, get_network_state, get_vpn_status,
-    get_saved_wifi_networks, list_wifi_networks, rescan_wifi, toggle_network_state,
-    get_wireless_enabled, list_vpn_profiles, set_wireless_enabled, is_wireless_available,
-    update_vpn_profile, get_network_stats, get_network_interfaces
+    activate_saved_wifi, connect_to_wifi, connect_vpn, create_vpn_profile, delete_vpn_profile,
+    delete_wifi_connection, disconnect_from_wifi, disconnect_vpn, get_network_interfaces,
+    get_network_state, get_network_stats, get_saved_wifi_networks, get_vpn_status,
+    get_wireless_enabled, is_wireless_available, list_vpn_profiles, list_wifi_networks,
+    rescan_wifi, set_wireless_enabled, toggle_network_state, update_vpn_profile,
 };
 pub use models::{
     NetworkInfo, VpnConnectionState, VpnCreateConfig, VpnEventPayload, VpnProfile, VpnStatus,
@@ -23,9 +23,9 @@ pub mod desktop;
 mod commands;
 pub mod error;
 pub mod models;
+mod network_stats;
 mod nm_constants;
 mod nm_helpers;
-mod network_stats;
 
 pub use crate::error::{NetworkError, Result as NetworkResult};
 
@@ -63,8 +63,8 @@ pub fn spawn_network_change_emitter<R: tauri::Runtime>(
     };
 
     std::thread::spawn(move || {
-        use std::time::{Duration, Instant};
         use std::sync::mpsc::RecvTimeoutError;
+        use std::time::{Duration, Instant};
 
         let mut pending_event: Option<crate::models::NetworkInfo> = None;
         let mut pending_vpn_status: Option<crate::models::VpnStatus> = None;
@@ -109,7 +109,12 @@ pub fn spawn_network_change_emitter<R: tauri::Runtime>(
                         // Leading emission improves perceived latency for UI updates.
                         let _ = app.emit("network-changed", &info);
                         if let Ok(vpn_status) = network_manager.get_vpn_status() {
-                            emit_vpn_events(&app, &network_manager, &mut last_vpn_status, vpn_status);
+                            emit_vpn_events(
+                                &app,
+                                &network_manager,
+                                &mut last_vpn_status,
+                                vpn_status,
+                            );
                         }
                         pending_event = None;
                         pending_vpn_status = None;
@@ -128,7 +133,9 @@ fn resolve_active_vpn_profile<R: tauri::Runtime>(
 ) -> Option<VpnProfile> {
     let active_uuid = status.active_profile_uuid.as_deref()?;
     let profiles = network_manager.list_vpn_profiles().ok()?;
-    profiles.into_iter().find(|profile| profile.uuid == active_uuid)
+    profiles
+        .into_iter()
+        .find(|profile| profile.uuid == active_uuid)
 }
 
 fn emit_vpn_events<R: tauri::Runtime>(
@@ -308,7 +315,7 @@ impl<R: Runtime> NetworkManagerState<R> {
     pub fn set_wireless_enabled(&self, enabled: bool) -> Result<(), NetworkError> {
         let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
         match manager.as_ref() {
-             Some(manager) => manager.set_wireless_enabled(enabled),
+            Some(manager) => manager.set_wireless_enabled(enabled),
             _none => Err(NetworkError::NotInitialized),
         }
     }
@@ -322,21 +329,26 @@ impl<R: Runtime> NetworkManagerState<R> {
     }
 
     pub fn get_network_stats(&self) -> Result<crate::models::NetworkStats, NetworkError> {
-        let mut tracker = self.stats_tracker.write().map_err(|_| NetworkError::LockError)?;
-        
+        let mut tracker = self
+            .stats_tracker
+            .write()
+            .map_err(|_| NetworkError::LockError)?;
+
         // Get active interface from network manager
         let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
         let current_interface = if let Some(manager) = manager.as_ref() {
-            let network_state = manager.get_current_network_state()
+            let network_state = manager
+                .get_current_network_state()
                 .map_err(|e| NetworkError::OperationError(e.to_string()))?;
-            
+
             // Determine interface name from connection type
             if network_state.connection_type == "WiFi" {
                 // Try common WiFi interface names
                 crate::network_stats::get_network_interfaces()
                     .ok()
                     .and_then(|interfaces| {
-                        interfaces.into_iter()
+                        interfaces
+                            .into_iter()
                             .find(|i| i.starts_with("wl") || i.starts_with("wlan"))
                     })
                     .unwrap_or_else(|| "wlan0".to_string())
@@ -345,7 +357,8 @@ impl<R: Runtime> NetworkManagerState<R> {
                 crate::network_stats::get_network_interfaces()
                     .ok()
                     .and_then(|interfaces| {
-                        interfaces.into_iter()
+                        interfaces
+                            .into_iter()
                             .find(|i| i.starts_with("en") || i.starts_with("eth"))
                     })
                     .unwrap_or_else(|| "eth0".to_string())
@@ -354,19 +367,24 @@ impl<R: Runtime> NetworkManagerState<R> {
             return Err(NetworkError::NotInitialized);
         };
         drop(manager); // Release the read lock
-        
+
         // Initialize or reinitialize tracker if interface changed or not initialized
-        let needs_reinit = tracker.is_none() || 
-            tracker.as_ref().map(|t| t.get_interface() != current_interface).unwrap_or(false);
-        
+        let needs_reinit = tracker.is_none()
+            || tracker
+                .as_ref()
+                .map(|t| t.get_interface() != current_interface)
+                .unwrap_or(false);
+
         if needs_reinit {
             *tracker = crate::network_stats::NetworkStatsTracker::new(current_interface).ok();
         }
-        
+
         // Get stats from tracker
         match tracker.as_mut() {
             Some(t) => t.get_stats(),
-            None => Err(NetworkError::OperationError("Stats tracker not initialized".to_string())),
+            None => Err(NetworkError::OperationError(
+                "Stats tracker not initialized".to_string(),
+            )),
         }
     }
 
@@ -470,10 +488,7 @@ pub fn init() -> TauriPlugin<tauri::Wry> {
             // El `state()` devuelve un temporal, así que se liga antes: si no, el
             // guard toma prestado de algo que se libera al final de la sentencia.
             let estado = app.state::<NetworkManagerState<tauri::Wry>>();
-            let guardia = estado
-                .manager
-                .read()
-                .map_err(|_| NetworkError::LockError)?;
+            let guardia = estado.manager.read().map_err(|_| NetworkError::LockError)?;
             if let Some(manager) = guardia.as_ref() {
                 // Clone the manager with a 'static lifetime
                 let manager_static: crate::models::VSKNetworkManager<'static, tauri::Wry> =
