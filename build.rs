@@ -5,6 +5,7 @@ const COMMANDS: &[&str] = &[
     "connect_to_wifi",
     "disconnect_from_wifi",
     "get_saved_wifi_networks",
+    "activate_saved_wifi",
     "delete_wifi_connection",
     "toggle_network_state",
     "get_wireless_enabled",

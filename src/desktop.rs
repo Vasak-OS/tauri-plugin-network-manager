@@ -1178,47 +1178,29 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         let mut target_conn_path: Option<zbus::zvariant::OwnedObjectPath> = None;
 
         for conn_path in connections {
-            let conn_proxy = zbus::blocking::Proxy::new(
-                &self.connection,
-                "org.freedesktop.NetworkManager",
-                conn_path.as_str(),
-                "org.freedesktop.NetworkManager.Settings.Connection",
-            )?;
+            // Usar el helper existente que devuelve el mapa anidado a{sa{sv}}
+            let settings = self.get_connection_settings(&conn_path)?;
 
-            let settings: std::collections::HashMap<String, zbus::zvariant::OwnedValue> =
-                conn_proxy.call("GetSettings", &())?;
+            let connection_dict = match settings.get("connection") {
+                Some(v) => v,
+                None => continue,
+            };
 
-            if let Some(connection) = settings.get("connection") {
-                let connection_dict = match connection.downcast_ref::<Value>().and_then(|v| {
-                    v.downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>()
-                }) {
-                    Ok(dict) => dict,
+            if let Some(conn_type) = connection_dict.get("type") {
+                let v_type: &zbus::zvariant::Value<'_> = conn_type;
+                let conn_type_str = match v_type.downcast_ref::<String>() {
+                    Ok(s) => s,
                     _ => continue,
                 };
 
-                if let Some(conn_type) = connection_dict.get("type") {
-                    let v_type: &zbus::zvariant::Value<'_> = conn_type;
-                    let conn_type_str = match v_type.downcast_ref::<String>() {
-                        Ok(s) => s,
-                        _ => continue,
-                    };
-
-                    if conn_type_str == "802-11-wireless" {
-                        if let Some(wireless) = settings.get("802-11-wireless") {
-                            let wireless_dict = match wireless.downcast_ref::<Value>()
-                                .and_then(|v| v.downcast::<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>())
-                            {
-                                Ok(dict) => dict,
-                                _ => continue,
-                            };
-
-                            if let Some(ssid_value) = wireless_dict.get("ssid") {
-                                let v_ssid: &zbus::zvariant::Value<'_> = ssid_value;
-                                let conn_ssid_str = NetworkManagerHelpers::ssid_from_value(v_ssid);
-                                if conn_ssid_str == ssid {
-                                    target_conn_path = Some(conn_path.clone());
-                                    break;
-                                }
+                if conn_type_str == "802-11-wireless" {
+                    if let Some(wireless_dict) = settings.get("802-11-wireless") {
+                        if let Some(ssid_value) = wireless_dict.get("ssid") {
+                            let v_ssid: &zbus::zvariant::Value<'_> = ssid_value;
+                            let conn_ssid_str = NetworkManagerHelpers::ssid_from_value(v_ssid);
+                            if conn_ssid_str == ssid {
+                                target_conn_path = Some(conn_path.clone());
+                                break;
                             }
                         }
                     }

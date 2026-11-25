@@ -30,6 +30,32 @@ Default permissions for the plugin
 <tr>
 <td>
 
+`network-manager:allow-activate-saved-wifi`
+
+</td>
+<td>
+
+Enables the activate_saved_wifi command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`network-manager:deny-activate-saved-wifi`
+
+</td>
+<td>
+
+Denies the activate_saved_wifi command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `network-manager:allow-connect-to-wifi`
 
 </td>
