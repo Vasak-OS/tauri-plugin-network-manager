@@ -1158,13 +1158,15 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         Ok(saved_networks)
     }
 
-    /// Find and activate a saved WiFi connection by SSID.
+    /// Find and activate a saved WiFi connection by SSID or UUID.
     ///
     /// This uses NetworkManager's `ActivateConnection` on the existing saved
-    /// connection (by UUID), so it reuses the stored secrets instead of creating
+    /// connection, so it reuses the stored secrets instead of creating
     /// a new connection without credentials.
-    pub fn activate_saved_wifi(&self, ssid: &str) -> Result<()> {
-        // Find the saved connection by SSID
+    ///
+    /// If `uuid` is provided, it's used for exact matching (recommended).
+    /// Otherwise, matches by raw SSID bytes to avoid `from_utf8_lossy` collisions.
+    pub fn activate_saved_wifi(&self, ssid: &str, uuid: Option<&str>) -> Result<()> {
         let settings_proxy = zbus::blocking::Proxy::new(
             &self.connection,
             "org.freedesktop.NetworkManager",
@@ -1178,7 +1180,6 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
         let mut target_conn_path: Option<zbus::zvariant::OwnedObjectPath> = None;
 
         for conn_path in connections {
-            // Usar el helper existente que devuelve el mapa anidado a{sa{sv}}
             let settings = self.get_connection_settings(&conn_path)?;
 
             let connection_dict = match settings.get("connection") {
@@ -1194,10 +1195,25 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
                 };
 
                 if conn_type_str == "802-11-wireless" {
+                    // Si se proporciona UUID, usarlo para match exacto
+                    if let Some(target_uuid) = uuid {
+                        let connection_dict = match settings.get("connection") {
+                            Some(v) => v,
+                            None => continue,
+                        };
+                        if let Some(conn_uuid) = Self::extract_string_from_dict(connection_dict, "uuid") {
+                            if conn_uuid == target_uuid {
+                                target_conn_path = Some(conn_path.clone());
+                                break;
+                            }
+                            continue;
+                        }
+                    }
+
+                    // Fallback: comparar SSID por bytes crudos
                     if let Some(wireless_dict) = settings.get("802-11-wireless") {
                         if let Some(ssid_value) = wireless_dict.get("ssid") {
                             let v_ssid: &zbus::zvariant::Value<'_> = ssid_value;
-                            // Comparar bytes crudos del SSID para evitar colisiones por from_utf8_lossy
                             if let Some(saved_bytes) =
                                 NetworkManagerHelpers::ssid_bytes_from_value(v_ssid)
                             {
@@ -1215,8 +1231,9 @@ impl<R: Runtime> VSKNetworkManager<'static, R> {
 
         let conn_path = target_conn_path.ok_or_else(|| {
             crate::error::NetworkError::OperationError(format!(
-                "No saved WiFi connection found for SSID '{}'",
-                ssid
+                "No saved WiFi connection found for SSID '{}'{}",
+                ssid,
+                uuid.map(|u| format!(" (uuid: {})", u)).unwrap_or_default()
             ))
         })?;
 

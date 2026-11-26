@@ -116,12 +116,13 @@ pub async fn delete_wifi_connection(app_handle: AppHandle, ssid: String) -> Resu
     .await
 }
 
-/// Activate a saved WiFi connection by SSID (reuses stored secrets)
+/// Activate a saved WiFi connection by SSID or UUID (reuses stored secrets)
+/// If uuid is provided, uses exact UUID match; otherwise matches by raw SSID bytes.
 #[tauri::command]
-pub async fn activate_saved_wifi(app_handle: AppHandle, ssid: String) -> Result<()> {
+pub async fn activate_saved_wifi(app_handle: AppHandle, ssid: String, uuid: Option<String>) -> Result<()> {
     off_thread(move || {
         let state = app_handle.state::<NetworkManagerState<tauri::Wry>>();
-        state.activate_saved_wifi(&ssid)?;
+        state.activate_saved_wifi(&ssid, uuid.as_deref())?;
         Ok(())
     })
     .await

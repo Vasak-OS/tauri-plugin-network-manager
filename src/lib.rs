@@ -288,10 +288,10 @@ impl<R: Runtime> NetworkManagerState<R> {
         }
     }
 
-    pub fn activate_saved_wifi(&self, ssid: &str) -> Result<(), NetworkError> {
+    pub fn activate_saved_wifi(&self, ssid: &str, uuid: Option<&str>) -> Result<(), NetworkError> {
         let manager = self.manager.read().map_err(|_| NetworkError::LockError)?;
         match manager.as_ref() {
-            Some(manager) => manager.activate_saved_wifi(ssid),
+            Some(manager) => manager.activate_saved_wifi(ssid, uuid),
             _none => Err(NetworkError::NotInitialized),
         }
     }
