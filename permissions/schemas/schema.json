@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the activate_saved_wifi command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-activate-saved-wifi",
+          "markdownDescription": "Enables the activate_saved_wifi command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the activate_saved_wifi command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-activate-saved-wifi",
+          "markdownDescription": "Denies the activate_saved_wifi command without any pre-configured scope."
+        },
+        {
           "description": "Enables the connect_to_wifi command without any pre-configured scope.",
           "type": "string",
           "const": "allow-connect-to-wifi",

@@ -13,7 +13,7 @@ license = "GPL-3.0-or-later"
 keywords = ["tauri", "plugin", "network", "manager", "systemd"]
 
 [dependencies]
-tauri = "2"
+tauri = { version = "2", features = ["test"] }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 zbus = { version = "4", default-features = false, features = ["async-io"] }

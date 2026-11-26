@@ -1,8 +1,8 @@
-use zbus::zvariant::Value;
-use zbus::names::InterfaceName;
 use crate::error::Result;
 use crate::models::WiFiSecurityType;
 use crate::nm_constants::*;
+use zbus::names::InterfaceName;
+use zbus::zvariant::Value;
 
 pub struct NetworkManagerHelpers;
 
@@ -29,9 +29,21 @@ impl NetworkManagerHelpers {
             "RsnFlags",
         )?;
 
-        let flags = if let Ok(Value::U32(f)) = flags_variant.downcast_ref() { f } else { 0 };
-        let wpa = if let Ok(Value::U32(w)) = wpa_flags_variant.downcast_ref() { w } else { 0 };
-        let rsn = if let Ok(Value::U32(r)) = rsn_flags_variant.downcast_ref() { r } else { 0 };
+        let flags = if let Ok(Value::U32(f)) = flags_variant.downcast_ref() {
+            f
+        } else {
+            0
+        };
+        let wpa = if let Ok(Value::U32(w)) = wpa_flags_variant.downcast_ref() {
+            w
+        } else {
+            0
+        };
+        let rsn = if let Ok(Value::U32(r)) = rsn_flags_variant.downcast_ref() {
+            r
+        } else {
+            0
+        };
 
         // 1. Use KeyMgmt string property if available (most reliable)
         if let Ok(key_mgmt_variant) = ap_props.get(
@@ -92,9 +104,7 @@ impl NetworkManagerHelpers {
         Ok(WiFiSecurityType::None)
     }
 
-    pub fn has_internet_connectivity(
-        proxy: &zbus::blocking::fdo::PropertiesProxy,
-    ) -> Result<bool> {
+    pub fn has_internet_connectivity(proxy: &zbus::blocking::fdo::PropertiesProxy) -> Result<bool> {
         let connectivity_variant = proxy.get(
             InterfaceName::from_static_str_unchecked(IFACE_NM),
             "Connectivity",
@@ -111,17 +121,30 @@ impl NetworkManagerHelpers {
             Value::Array(ssid_bytes) => {
                 let bytes: Vec<u8> = ssid_bytes
                     .iter()
-                    .filter_map(|v| {
-                        if let Value::U8(b) = v {
-                            Some(*b)
-                        } else {
-                            None
-                        }
-                    })
+                    .filter_map(|v| if let Value::U8(b) = v { Some(*b) } else { None })
                     .collect();
                 String::from_utf8_lossy(&bytes).to_string()
             }
             _ => "Unknown".to_string(),
+        }
+    }
+
+    /// Extract raw SSID bytes for exact comparison (avoiding utf8_lossy collisions).
+    /// Returns the raw SSID bytes if valid, or None if not an array of U8.
+    pub fn ssid_bytes_from_value(value: &Value<'_>) -> Option<Vec<u8>> {
+        match value {
+            Value::Array(ssid_bytes) => {
+                let bytes: Vec<u8> = ssid_bytes
+                    .iter()
+                    .filter_map(|v| if let Value::U8(b) = v { Some(*b) } else { None })
+                    .collect();
+                if bytes.is_empty() {
+                    None
+                } else {
+                    Some(bytes)
+                }
+            }
+            _ => None,
         }
     }
 }

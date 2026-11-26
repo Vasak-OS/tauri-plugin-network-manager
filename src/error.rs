@@ -32,19 +32,19 @@ pub enum NetworkError {
 
     #[error("Failed to initialize NetworkManager")]
     InitializationError,
-    
+
     #[error("Network operation failed")]
     OperationError(String),
-    
+
     #[error("No network connection available")]
     NoConnection,
-    
+
     #[error("Network connection failed")]
     ConnectionFailed(String),
-    
+
     #[error("NetworkManager not initialized")]
     NotInitialized,
-    
+
     #[error("Failed to acquire lock on network manager")]
     LockError,
 
